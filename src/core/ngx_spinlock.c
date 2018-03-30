@@ -13,7 +13,7 @@ void
 ngx_spinlock(ngx_atomic_t *lock, ngx_atomic_int_t value, ngx_uint_t spin)
 {
 
-#if (NGX_HAVE_ATOMIC_OPS)
+
 
     ngx_uint_t  i, n;
 
@@ -40,14 +40,5 @@ ngx_spinlock(ngx_atomic_t *lock, ngx_atomic_int_t value, ngx_uint_t spin)
         ngx_sched_yield();
     }
 
-#else
-
-#if (NGX_THREADS)
-
-#error ngx_spinlock() or ngx_atomic_cmp_set() are not defined !
-
-#endif
-
-#endif
 
 }

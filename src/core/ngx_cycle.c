@@ -387,14 +387,14 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
             goto failed;
         }
 
-#if !(NGX_WIN32)
+
         if (fcntl(file[i].fd, F_SETFD, FD_CLOEXEC) == -1) {
             ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
                           "fcntl(FD_CLOEXEC) \"%s\" failed",
                           file[i].name.data);
             goto failed;
         }
-#endif
+
     }
 
     cycle->log = &cycle->new_log;
@@ -457,9 +457,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                 && !shm_zone[i].noreuse)
             {
                 shm_zone[i].shm.addr = oshm_zone[n].shm.addr;
-#if (NGX_WIN32)
-                shm_zone[i].shm.handle = oshm_zone[n].shm.handle;
-#endif
+
 
                 if (shm_zone[i].init(&shm_zone[i], oshm_zone[n].data)
                     != NGX_OK)
@@ -889,21 +887,7 @@ ngx_init_zone_pool(ngx_cycle_t *cycle, ngx_shm_zone_t *zn)
             return NGX_OK;
         }
 
-#if (NGX_WIN32)
 
-        /* remap at the required address */
-
-        if (ngx_shm_remap(&zn->shm, sp->addr) != NGX_OK) {
-            return NGX_ERROR;
-        }
-
-        sp = (ngx_slab_pool_t *) zn->shm.addr;
-
-        if (sp == sp->addr) {
-            return NGX_OK;
-        }
-
-#endif
 
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "shared zone \"%V\" has no equal addresses: %p vs %p",
@@ -1130,7 +1114,7 @@ ngx_reopen_files(ngx_cycle_t *cycle, ngx_uid_t user)
             continue;
         }
 
-#if !(NGX_WIN32)
+
         if (user != (ngx_uid_t) NGX_CONF_UNSET_UINT) {
             ngx_file_info_t  fi;
 
@@ -1196,7 +1180,7 @@ ngx_reopen_files(ngx_cycle_t *cycle, ngx_uid_t user)
 
             continue;
         }
-#endif
+
 
         if (ngx_close_file(file[i].fd) == NGX_FILE_ERROR) {
             ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,

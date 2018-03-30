@@ -297,12 +297,9 @@ ngx_log_errno(u_char *buf, u_char *last, ngx_err_t err)
         *buf++ = '.';
     }
 
-#if (NGX_WIN32)
-    buf = ngx_slprintf(buf, last, ((unsigned) err < 0x80000000)
-                                       ? " (%d: " : " (%Xd: ", err);
-#else
+
     buf = ngx_slprintf(buf, last, " (%d: ", err);
-#endif
+
 
     buf = ngx_strerror(err, buf, last - buf);
 
@@ -339,22 +336,18 @@ ngx_log_init(u_char *prefix)
 
     p = NULL;
 
-#if (NGX_WIN32)
-    if (name[1] != ':') {
-#else
+
     if (name[0] != '/') {
-#endif
+
 
         if (prefix) {
             plen = ngx_strlen(prefix);
 
         } else {
-#ifdef NGX_PREFIX
+
             prefix = (u_char *) NGX_PREFIX;
             plen = ngx_strlen(prefix);
-#else
-            plen = 0;
-#endif
+
         }
 
         if (plen) {
@@ -383,11 +376,7 @@ ngx_log_init(u_char *prefix)
         ngx_log_stderr(ngx_errno,
                        "[alert] could not open error log file: "
                        ngx_open_file_n " \"%s\" failed", name);
-#if (NGX_WIN32)
-        ngx_event_log(ngx_errno,
-                       "could not open error log file: "
-                       ngx_open_file_n " \"%s\" failed", name);
-#endif
+
 
         ngx_log_file.fd = ngx_stderr;
     }

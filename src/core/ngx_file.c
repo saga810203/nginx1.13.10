@@ -32,13 +32,7 @@ ngx_get_full_name(ngx_pool_t *pool, ngx_str_t *prefix, ngx_str_t *name)
 
     len = prefix->len;
 
-#if (NGX_WIN32)
 
-    if (rc == 2) {
-        len = rc;
-    }
-
-#endif
 
     n = ngx_pnalloc(pool, len + name->len + 1);
     if (n == NULL) {
@@ -58,42 +52,7 @@ ngx_get_full_name(ngx_pool_t *pool, ngx_str_t *prefix, ngx_str_t *name)
 static ngx_int_t
 ngx_test_full_name(ngx_str_t *name)
 {
-#if (NGX_WIN32)
-    u_char  c0, c1;
 
-    c0 = name->data[0];
-
-    if (name->len < 2) {
-        if (c0 == '/') {
-            return 2;
-        }
-
-        return NGX_DECLINED;
-    }
-
-    c1 = name->data[1];
-
-    if (c1 == ':') {
-        c0 |= 0x20;
-
-        if ((c0 >= 'a' && c0 <= 'z')) {
-            return NGX_OK;
-        }
-
-        return NGX_DECLINED;
-    }
-
-    if (c1 == '/') {
-        return NGX_OK;
-    }
-
-    if (c0 == '/') {
-        return 2;
-    }
-
-    return NGX_DECLINED;
-
-#else
 
     if (name->data[0] == '/') {
         return NGX_OK;
@@ -101,7 +60,6 @@ ngx_test_full_name(ngx_str_t *name)
 
     return NGX_DECLINED;
 
-#endif
 }
 
 
@@ -124,14 +82,7 @@ ngx_write_chain_to_temp_file(ngx_temp_file_t *tf, ngx_chain_t *chain)
         }
     }
 
-#if (NGX_THREADS && NGX_HAVE_PWRITEV)
 
-    if (tf->thread_write) {
-        return ngx_thread_write_chain_to_file(&tf->file, chain, tf->offset,
-                                              tf->pool);
-    }
-
-#endif
 
     return ngx_write_chain_to_file(&tf->file, chain, tf->offset, tf->pool);
 }
@@ -308,11 +259,9 @@ ngx_create_full_path(u_char *dir, ngx_uint_t access)
 
     err = 0;
 
-#if (NGX_WIN32)
-    p = dir + 3;
-#else
+
     p = dir + 1;
-#endif
+
 
     for ( /* void */ ; *p; p++) {
         ch = *p;
@@ -618,7 +567,7 @@ ngx_create_paths(ngx_cycle_t *cycle, ngx_uid_t user)
             continue;
         }
 
-#if !(NGX_WIN32)
+
         {
         ngx_file_info_t   fi;
 
@@ -649,7 +598,7 @@ ngx_create_paths(ngx_cycle_t *cycle, ngx_uid_t user)
             }
         }
         }
-#endif
+
     }
 
     return NGX_OK;
@@ -663,7 +612,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
     ngx_err_t         err;
     ngx_copy_file_t   cf;
 
-#if !(NGX_WIN32)
+
 
     if (ext->access) {
         if (ngx_change_file_access(src->data, ext->access) == NGX_FILE_ERROR) {
@@ -674,7 +623,6 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
         }
     }
 
-#endif
 
     if (ext->time != -1) {
         if (ngx_set_file_time(src->data, ext->fd, ext->time) != NGX_OK) {
@@ -713,17 +661,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
         err = ngx_errno;
     }
 
-#if (NGX_WIN32)
 
-    if (err == NGX_EEXIST || err == NGX_EEXIST_FILE) {
-        err = ngx_win32_rename_file(src, to, ext->log);
-
-        if (err == 0) {
-            return NGX_OK;
-        }
-    }
-
-#endif
 
     if (err == NGX_EXDEV) {
 

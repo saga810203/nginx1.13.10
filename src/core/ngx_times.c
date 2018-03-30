@@ -34,7 +34,7 @@ volatile ngx_str_t       ngx_cached_http_log_time;
 volatile ngx_str_t       ngx_cached_http_log_iso8601;
 volatile ngx_str_t       ngx_cached_syslog_time;
 
-#if !(NGX_WIN32)
+
 
 /*
  * localtime() and localtime_r() are not Async-Signal-Safe functions, therefore,
@@ -43,7 +43,7 @@ volatile ngx_str_t       ngx_cached_syslog_time;
  */
 
 static ngx_int_t         cached_gmtoff;
-#endif
+
 
 static ngx_time_t        cached_time[NGX_TIME_SLOTS];
 static u_char            cached_err_log_time[NGX_TIME_SLOTS]
@@ -217,7 +217,7 @@ ngx_monotonic_time(time_t sec, ngx_uint_t msec)
 }
 
 
-#if !(NGX_WIN32)
+
 
 void
 ngx_time_sigsafe_update(void)
@@ -276,7 +276,7 @@ ngx_time_sigsafe_update(void)
     ngx_unlock(&ngx_time_lock);
 }
 
-#endif
+
 
 
 u_char *

@@ -10,89 +10,6 @@
 #include <ngx_event.h>
 
 
-#if (NGX_TEST_BUILD_EPOLL)
-
-/* epoll declarations */
-
-#define EPOLLIN        0x001
-#define EPOLLPRI       0x002
-#define EPOLLOUT       0x004
-#define EPOLLERR       0x008
-#define EPOLLHUP       0x010
-#define EPOLLRDNORM    0x040
-#define EPOLLRDBAND    0x080
-#define EPOLLWRNORM    0x100
-#define EPOLLWRBAND    0x200
-#define EPOLLMSG       0x400
-
-#define EPOLLRDHUP     0x2000
-
-#define EPOLLEXCLUSIVE 0x10000000
-#define EPOLLONESHOT   0x40000000
-#define EPOLLET        0x80000000
-
-#define EPOLL_CTL_ADD  1
-#define EPOLL_CTL_DEL  2
-#define EPOLL_CTL_MOD  3
-
-typedef union epoll_data {
-    void         *ptr;
-    int           fd;
-    uint32_t      u32;
-    uint64_t      u64;
-} epoll_data_t;
-
-struct epoll_event {
-    uint32_t      events;
-    epoll_data_t  data;
-};
-
-
-int epoll_create(int size);
-
-int epoll_create(int size)
-{
-    return -1;
-}
-
-
-int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
-
-int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
-{
-    return -1;
-}
-
-
-int epoll_wait(int epfd, struct epoll_event *events, int nevents, int timeout);
-
-int epoll_wait(int epfd, struct epoll_event *events, int nevents, int timeout)
-{
-    return -1;
-}
-
-#if (NGX_HAVE_EVENTFD)
-#define SYS_eventfd       323
-#endif
-
-#if (NGX_HAVE_FILE_AIO)
-
-#define SYS_io_setup      245
-#define SYS_io_destroy    246
-#define SYS_io_getevents  247
-
-typedef u_int  aio_context_t;
-
-struct io_event {
-    uint64_t  data;  /* the data field from the iocb */
-    uint64_t  obj;   /* what iocb this event came from */
-    int64_t   res;   /* result code for this event */
-    int64_t   res2;  /* secondary result */
-};
-
-
-#endif
-#endif /* NGX_TEST_BUILD_EPOLL */
 
 
 typedef struct {
@@ -123,9 +40,7 @@ static ngx_int_t ngx_epoll_notify(ngx_event_handler_pt handler);
 static ngx_int_t ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer,
     ngx_uint_t flags);
 
-#if (NGX_HAVE_FILE_AIO)
-static void ngx_epoll_eventfd_handler(ngx_event_t *ev);
-#endif
+
 
 static void *ngx_epoll_create_conf(ngx_cycle_t *cycle);
 static char *ngx_epoll_init_conf(ngx_cycle_t *cycle, void *conf);
@@ -140,19 +55,10 @@ static ngx_event_t          notify_event;
 static ngx_connection_t     notify_conn;
 #endif
 
-#if (NGX_HAVE_FILE_AIO)
 
-int                         ngx_eventfd = -1;
-aio_context_t               ngx_aio_ctx = 0;
 
-static ngx_event_t          ngx_eventfd_event;
-static ngx_connection_t     ngx_eventfd_conn;
-
-#endif
-
-#if (NGX_HAVE_EPOLLRDHUP)
 ngx_uint_t                  ngx_use_epoll_rdhup;
-#endif
+
 
 static ngx_str_t      epoll_name = ngx_string("epoll");
 
@@ -215,108 +121,7 @@ ngx_module_t  ngx_epoll_module = {
 };
 
 
-#if (NGX_HAVE_FILE_AIO)
 
-/*
- * We call io_setup(), io_destroy() io_submit(), and io_getevents() directly
- * as syscalls instead of libaio usage, because the library header file
- * supports eventfd() since 0.3.107 version only.
- */
-
-static int
-io_setup(u_int nr_reqs, aio_context_t *ctx)
-{
-    return syscall(SYS_io_setup, nr_reqs, ctx);
-}
-
-
-static int
-io_destroy(aio_context_t ctx)
-{
-    return syscall(SYS_io_destroy, ctx);
-}
-
-
-static int
-io_getevents(aio_context_t ctx, long min_nr, long nr, struct io_event *events,
-    struct timespec *tmo)
-{
-    return syscall(SYS_io_getevents, ctx, min_nr, nr, events, tmo);
-}
-
-
-static void
-ngx_epoll_aio_init(ngx_cycle_t *cycle, ngx_epoll_conf_t *epcf)
-{
-    int                 n;
-    struct epoll_event  ee;
-
-#if (NGX_HAVE_SYS_EVENTFD_H)
-    ngx_eventfd = eventfd(0, 0);
-#else
-    ngx_eventfd = syscall(SYS_eventfd, 0);
-#endif
-
-    if (ngx_eventfd == -1) {
-        ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
-                      "eventfd() failed");
-        ngx_file_aio = 0;
-        return;
-    }
-
-    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
-                   "eventfd: %d", ngx_eventfd);
-
-    n = 1;
-
-    if (ioctl(ngx_eventfd, FIONBIO, &n) == -1) {
-        ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
-                      "ioctl(eventfd, FIONBIO) failed");
-        goto failed;
-    }
-
-    if (io_setup(epcf->aio_requests, &ngx_aio_ctx) == -1) {
-        ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
-                      "io_setup() failed");
-        goto failed;
-    }
-
-    ngx_eventfd_event.data = &ngx_eventfd_conn;
-    ngx_eventfd_event.handler = ngx_epoll_eventfd_handler;
-    ngx_eventfd_event.log = cycle->log;
-    ngx_eventfd_event.active = 1;
-    ngx_eventfd_conn.fd = ngx_eventfd;
-    ngx_eventfd_conn.read = &ngx_eventfd_event;
-    ngx_eventfd_conn.log = cycle->log;
-
-    ee.events = EPOLLIN|EPOLLET;
-    ee.data.ptr = &ngx_eventfd_conn;
-
-    if (epoll_ctl(ep, EPOLL_CTL_ADD, ngx_eventfd, &ee) != -1) {
-        return;
-    }
-
-    ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
-                  "epoll_ctl(EPOLL_CTL_ADD, eventfd) failed");
-
-    if (io_destroy(ngx_aio_ctx) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
-                      "io_destroy() failed");
-    }
-
-failed:
-
-    if (close(ngx_eventfd) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
-                      "eventfd close() failed");
-    }
-
-    ngx_eventfd = -1;
-    ngx_aio_ctx = 0;
-    ngx_file_aio = 0;
-}
-
-#endif
 
 
 static ngx_int_t
@@ -341,9 +146,6 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
         }
 #endif
 
-#if (NGX_HAVE_FILE_AIO)
-        ngx_epoll_aio_init(cycle, epcf);
-#endif
 
 #if (NGX_HAVE_EPOLLRDHUP)
         ngx_epoll_test_rdhup(cycle);
@@ -367,14 +169,6 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
     ngx_io = ngx_os_io;
 
     ngx_event_actions = ngx_epoll_module_ctx.actions;
-
-#if (NGX_HAVE_CLEAR_EVENT)
-    ngx_event_flags = NGX_USE_CLEAR_EVENT
-#else
-    ngx_event_flags = NGX_USE_LEVEL_EVENT
-#endif
-                      |NGX_USE_GREEDY_EVENT
-                      |NGX_USE_EPOLL_EVENT;
 
     return NGX_OK;
 }
@@ -547,26 +341,7 @@ ngx_epoll_done(ngx_cycle_t *cycle)
 
 #endif
 
-#if (NGX_HAVE_FILE_AIO)
 
-    if (ngx_eventfd != -1) {
-
-        if (io_destroy(ngx_aio_ctx) == -1) {
-            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
-                          "io_destroy() failed");
-        }
-
-        if (close(ngx_eventfd) == -1) {
-            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
-                          "eventfd close() failed");
-        }
-
-        ngx_eventfd = -1;
-    }
-
-    ngx_aio_ctx = 0;
-
-#endif
 
     ngx_free(event_list);
 
@@ -920,9 +695,7 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
             }
 
             wev->ready = 1;
-#if (NGX_THREADS)
-            wev->complete = 1;
-#endif
+
 
             if (flags & NGX_POST_EVENTS) {
                 ngx_post_event(wev, &ngx_posted_events);
@@ -937,90 +710,7 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
 }
 
 
-#if (NGX_HAVE_FILE_AIO)
 
-static void
-ngx_epoll_eventfd_handler(ngx_event_t *ev)
-{
-    int               n, events;
-    long              i;
-    uint64_t          ready;
-    ngx_err_t         err;
-    ngx_event_t      *e;
-    ngx_event_aio_t  *aio;
-    struct io_event   event[64];
-    struct timespec   ts;
-
-    ngx_log_debug0(NGX_LOG_DEBUG_EVENT, ev->log, 0, "eventfd handler");
-
-    n = read(ngx_eventfd, &ready, 8);
-
-    err = ngx_errno;
-
-    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, ev->log, 0, "eventfd: %d", n);
-
-    if (n != 8) {
-        if (n == -1) {
-            if (err == NGX_EAGAIN) {
-                return;
-            }
-
-            ngx_log_error(NGX_LOG_ALERT, ev->log, err, "read(eventfd) failed");
-            return;
-        }
-
-        ngx_log_error(NGX_LOG_ALERT, ev->log, 0,
-                      "read(eventfd) returned only %d bytes", n);
-        return;
-    }
-
-    ts.tv_sec = 0;
-    ts.tv_nsec = 0;
-
-    while (ready) {
-
-        events = io_getevents(ngx_aio_ctx, 1, 64, event, &ts);
-
-        ngx_log_debug1(NGX_LOG_DEBUG_EVENT, ev->log, 0,
-                       "io_getevents: %d", events);
-
-        if (events > 0) {
-            ready -= events;
-
-            for (i = 0; i < events; i++) {
-
-                ngx_log_debug4(NGX_LOG_DEBUG_EVENT, ev->log, 0,
-                               "io_event: %XL %XL %L %L",
-                                event[i].data, event[i].obj,
-                                event[i].res, event[i].res2);
-
-                e = (ngx_event_t *) (uintptr_t) event[i].data;
-
-                e->complete = 1;
-                e->active = 0;
-                e->ready = 1;
-
-                aio = e->data;
-                aio->res = event[i].res;
-
-                ngx_post_event(e, &ngx_posted_events);
-            }
-
-            continue;
-        }
-
-        if (events == 0) {
-            return;
-        }
-
-        /* events == -1 */
-        ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_errno,
-                      "io_getevents() failed");
-        return;
-    }
-}
-
-#endif
 
 
 static void *

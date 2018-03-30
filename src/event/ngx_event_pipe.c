@@ -112,26 +112,7 @@ ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
         return NGX_OK;
     }
 
-#if (NGX_THREADS)
 
-    if (p->aio) {
-        ngx_log_debug0(NGX_LOG_DEBUG_EVENT, p->log, 0,
-                       "pipe read upstream: aio");
-        return NGX_AGAIN;
-    }
-
-    if (p->writing) {
-        ngx_log_debug0(NGX_LOG_DEBUG_EVENT, p->log, 0,
-                       "pipe read upstream: writing");
-
-        rc = ngx_event_pipe_write_chain_to_temp_file(p);
-
-        if (rc != NGX_OK) {
-            return rc;
-        }
-    }
-
-#endif
 
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, p->log, 0,
                    "pipe read upstream: %d", p->upstream->read->ready);
@@ -163,36 +144,7 @@ ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
 
         } else {
 
-#if (NGX_HAVE_KQUEUE)
 
-            /*
-             * kqueue notifies about the end of file or a pending error.
-             * This test allows not to allocate a buf on these conditions
-             * and not to call c->recv_chain().
-             */
-
-            if (p->upstream->read->available == 0
-                && p->upstream->read->pending_eof)
-            {
-                p->upstream->read->ready = 0;
-                p->upstream->read->eof = 1;
-                p->upstream_eof = 1;
-                p->read = 1;
-
-                if (p->upstream->read->kq_errno) {
-                    p->upstream->read->error = 1;
-                    p->upstream_error = 1;
-                    p->upstream_eof = 0;
-
-                    ngx_log_error(NGX_LOG_ERR, p->log,
-                                  p->upstream->read->kq_errno,
-                                  "kevent() reported that upstream "
-                                  "closed connection");
-                }
-
-                break;
-            }
-#endif
 
             if (p->limit_rate) {
                 if (p->upstream->read->delayed) {
@@ -509,17 +461,7 @@ ngx_event_pipe_write_to_downstream(ngx_event_pipe_t *p)
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, p->log, 0,
                    "pipe write downstream: %d", downstream->write->ready);
 
-#if (NGX_THREADS)
 
-    if (p->writing) {
-        rc = ngx_event_pipe_write_chain_to_temp_file(p);
-
-        if (rc == NGX_ABORT) {
-            return NGX_ABORT;
-        }
-    }
-
-#endif
 
     flushed = 0;
 
@@ -738,27 +680,7 @@ ngx_event_pipe_write_chain_to_temp_file(ngx_event_pipe_t *p)
     ngx_uint_t    prev_last_shadow;
     ngx_chain_t  *cl, *tl, *next, *out, **ll, **last_out, **last_free;
 
-#if (NGX_THREADS)
 
-    if (p->writing) {
-
-        if (p->aio) {
-            return NGX_AGAIN;
-        }
-
-        out = p->writing;
-        p->writing = NULL;
-
-        n = ngx_write_chain_to_temp_file(p->temp_file, NULL);
-
-        if (n == NGX_ERROR) {
-            return NGX_ABORT;
-        }
-
-        goto done;
-    }
-
-#endif
 
     if (p->buf_to_file) {
         out = ngx_alloc_chain_link(p->pool);
@@ -827,14 +749,7 @@ ngx_event_pipe_write_chain_to_temp_file(ngx_event_pipe_t *p)
         p->last_in = &p->in;
     }
 
-#if (NGX_THREADS)
-    if (p->thread_handler) {
-        p->temp_file->thread_write = 1;
-        p->temp_file->file.thread_task = p->thread_task;
-        p->temp_file->file.thread_handler = p->thread_handler;
-        p->temp_file->file.thread_ctx = p->thread_ctx;
-    }
-#endif
+
 
     n = ngx_write_chain_to_temp_file(p->temp_file, out);
 
@@ -842,17 +757,7 @@ ngx_event_pipe_write_chain_to_temp_file(ngx_event_pipe_t *p)
         return NGX_ABORT;
     }
 
-#if (NGX_THREADS)
 
-    if (n == NGX_AGAIN) {
-        p->writing = out;
-        p->thread_task = p->temp_file->file.thread_task;
-        return NGX_AGAIN;
-    }
-
-done:
-
-#endif
 
     if (p->buf_to_file) {
         p->temp_file->offset = p->buf_to_file->last - p->buf_to_file->pos;

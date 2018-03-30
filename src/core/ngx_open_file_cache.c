@@ -50,7 +50,7 @@ static void ngx_open_file_cache_rbtree_insert_value(ngx_rbtree_node_t *temp,
 static ngx_cached_open_file_t *
     ngx_open_file_lookup(ngx_open_file_cache_t *cache, ngx_str_t *name,
     uint32_t hash);
-static void ngx_open_file_cache_remove(ngx_event_t *ev);
+//static void ngx_open_file_cache_remove(ngx_event_t *ev);
 
 
 ngx_open_file_cache_t *
@@ -954,61 +954,61 @@ static void
 ngx_open_file_add_event(ngx_open_file_cache_t *cache,
     ngx_cached_open_file_t *file, ngx_open_file_info_t *of, ngx_log_t *log)
 {
-    ngx_open_file_cache_event_t  *fev;
+//    ngx_open_file_cache_event_t  *fev;
 
-    if (!(ngx_event_flags & NGX_USE_VNODE_EVENT)
-        || !of->events
-        || file->event
-        || of->fd == NGX_INVALID_FILE
-        || file->uses < of->min_uses)
-    {
-        return;
-    }
-
-    file->use_event = 0;
-
-    file->event = ngx_calloc(sizeof(ngx_event_t), log);
-    if (file->event== NULL) {
-        return;
-    }
-
-    fev = ngx_alloc(sizeof(ngx_open_file_cache_event_t), log);
-    if (fev == NULL) {
-        ngx_free(file->event);
-        file->event = NULL;
-        return;
-    }
-
-    fev->fd = of->fd;
-    fev->file = file;
-    fev->cache = cache;
-
-    file->event->handler = ngx_open_file_cache_remove;
-    file->event->data = fev;
-
-    /*
-     * although vnode event may be called while ngx_cycle->poll
-     * destruction, however, cleanup procedures are run before any
-     * memory freeing and events will be canceled.
-     */
-
-    file->event->log = ngx_cycle->log;
-
-    if (ngx_add_event(file->event, NGX_VNODE_EVENT, NGX_ONESHOT_EVENT)
-        != NGX_OK)
-    {
-        ngx_free(file->event->data);
-        ngx_free(file->event);
-        file->event = NULL;
-        return;
-    }
-
-    /*
-     * we do not set file->use_event here because there may be a race
-     * condition: a file may be deleted between opening the file and
-     * adding event, so we rely upon event notification only after
-     * one file revalidation on next file access
-     */
+//    if (!(ngx_event_flags & NGX_USE_VNODE_EVENT)
+//        || !of->events
+//        || file->event
+//        || of->fd == NGX_INVALID_FILE
+//        || file->uses < of->min_uses)
+//    {
+//        return;
+//    }
+//
+//    file->use_event = 0;
+//
+//    file->event = ngx_calloc(sizeof(ngx_event_t), log);
+//    if (file->event== NULL) {
+//        return;
+//    }
+//
+//    fev = ngx_alloc(sizeof(ngx_open_file_cache_event_t), log);
+//    if (fev == NULL) {
+//        ngx_free(file->event);
+//        file->event = NULL;
+//        return;
+//    }
+//
+//    fev->fd = of->fd;
+//    fev->file = file;
+//    fev->cache = cache;
+//
+//    file->event->handler = ngx_open_file_cache_remove;
+//    file->event->data = fev;
+//
+//    /*
+//     * although vnode event may be called while ngx_cycle->poll
+//     * destruction, however, cleanup procedures are run before any
+//     * memory freeing and events will be canceled.
+//     */
+//
+//    file->event->log = ngx_cycle->log;
+//
+//    if (ngx_add_event(file->event, NGX_VNODE_EVENT, NGX_ONESHOT_EVENT)
+//        != NGX_OK)
+//    {
+//        ngx_free(file->event->data);
+//        ngx_free(file->event);
+//        file->event = NULL;
+//        return;
+//    }
+//
+//    /*
+//     * we do not set file->use_event here because there may be a race
+//     * condition: a file may be deleted between opening the file and
+//     * adding event, so we rely upon event notification only after
+//     * one file revalidation on next file access
+//     */
 
     return;
 }
@@ -1223,31 +1223,31 @@ ngx_open_file_lookup(ngx_open_file_cache_t *cache, ngx_str_t *name,
 }
 
 
-static void
-ngx_open_file_cache_remove(ngx_event_t *ev)
-{
-    ngx_cached_open_file_t       *file;
-    ngx_open_file_cache_event_t  *fev;
-
-    fev = ev->data;
-    file = fev->file;
-
-    ngx_queue_remove(&file->queue);
-
-    ngx_rbtree_delete(&fev->cache->rbtree, &file->node);
-
-    fev->cache->current--;
-
-    /* NGX_ONESHOT_EVENT was already deleted */
-    file->event = NULL;
-    file->use_event = 0;
-
-    file->close = 1;
-
-    ngx_close_cached_file(fev->cache, file, 0, ev->log);
-
-    /* free memory only when fev->cache and fev->file are already not needed */
-
-    ngx_free(ev->data);
-    ngx_free(ev);
-}
+//static void
+//ngx_open_file_cache_remove(ngx_event_t *ev)
+//{
+//    ngx_cached_open_file_t       *file;
+//    ngx_open_file_cache_event_t  *fev;
+//
+//    fev = ev->data;
+//    file = fev->file;
+//
+//    ngx_queue_remove(&file->queue);
+//
+//    ngx_rbtree_delete(&fev->cache->rbtree, &file->node);
+//
+//    fev->cache->current--;
+//
+//    /* NGX_ONESHOT_EVENT was already deleted */
+//    file->event = NULL;
+//    file->use_event = 0;
+//
+//    file->close = 1;
+//
+//    ngx_close_cached_file(fev->cache, file, 0, ev->log);
+//
+//    /* free memory only when fev->cache and fev->file are already not needed */
+//
+//    ngx_free(ev->data);
+//    ngx_free(ev);
+//}

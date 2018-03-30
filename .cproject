@@ -31,24 +31,15 @@
 								<option id="gnu.c.compiler.option.misc.other.1746549618" name="Other flags" superClass="gnu.c.compiler.option.misc.other" useByScannerDiscovery="false" value="-c -pipe  -W -Wall -Wpointer-arith -Wno-unused-parameter -Werror -g " valueType="string"/>
 								<option id="gnu.c.compiler.option.warnings.allwarn.62516191" name="All warnings (-Wall)" superClass="gnu.c.compiler.option.warnings.allwarn" useByScannerDiscovery="false" value="false" valueType="boolean"/>
 								<option id="gnu.c.compiler.option.include.paths.1827885837" name="Include paths (-I)" superClass="gnu.c.compiler.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
-									<listOptionValue builtIn="false" value="/opt/nginx-1.13.10/src/core"/>
-									<listOptionValue builtIn="false" value="/opt/openssl-1.0.2o/.openssl/include"/>
-									<listOptionValue builtIn="false" value="/opt/nginx-1.13.10/src/event"/>
-									<listOptionValue builtIn="false" value="/opt/nginx-1.13.10/src/event/modules"/>
-									<listOptionValue builtIn="false" value="/opt/nginx-1.13.10/src/os/unix"/>
-									<listOptionValue builtIn="false" value="/opt/nginx-1.13.10/objs"/>
-									<listOptionValue builtIn="false" value="/opt/pcre-8.41"/>
-									<listOptionValue builtIn="false" value="/opt/nginx-1.13.10/src/http"/>
-									<listOptionValue builtIn="false" value="/opt/nginx-1.13.10/src/http/modules"/>
-									<listOptionValue builtIn="false" value="/opt/nginx-1.13.10/src/http/v2"/>
+									<listOptionValue builtIn="false" value="/eclipse/workspace3/nginx1.13.10/sinclude"/>
 								</option>
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1226330691" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>
 							<tool id="cdt.managedbuild.tool.gnu.c.linker.exe.release.230372199" name="GCC C Linker" superClass="cdt.managedbuild.tool.gnu.c.linker.exe.release">
 								<option id="gnu.c.link.option.userobjs.2024344030" name="Other objects" superClass="gnu.c.link.option.userobjs" useByScannerDiscovery="false" valueType="userObjs">
-									<listOptionValue builtIn="false" value="/opt/pcre-8.41/.libs/libpcre.a"/>
 									<listOptionValue builtIn="false" value="/opt/openssl-1.0.2o/.openssl/lib/libssl.a"/>
 									<listOptionValue builtIn="false" value="/opt/openssl-1.0.2o/.openssl/lib/libcrypto.a"/>
+									<listOptionValue builtIn="false" value="/opt/pcre-8.41/.libs/libpcre.a"/>
 								</option>
 								<option id="gnu.c.link.option.libs.611256350" name="Libraries (-l)" superClass="gnu.c.link.option.libs" useByScannerDiscovery="false" valueType="libs">
 									<listOptionValue builtIn="false" value="pthread"/>
@@ -64,6 +55,24 @@
 							<tool id="cdt.managedbuild.tool.gnu.cpp.linker.exe.release.768737" name="GCC C++ Linker" superClass="cdt.managedbuild.tool.gnu.cpp.linker.exe.release"/>
 							<tool id="cdt.managedbuild.tool.gnu.assembler.exe.release.1405673012" name="GCC Assembler" superClass="cdt.managedbuild.tool.gnu.assembler.exe.release">
 								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.631508999" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+					<folderInfo id="cdt.managedbuild.config.gnu.exe.release.1614480121.1624400446" name="/" resourcePath="include">
+						<toolChain id="cdt.managedbuild.toolchain.gnu.exe.release.808675899" name="Linux GCC" superClass="cdt.managedbuild.toolchain.gnu.exe.release" unusedChildren="">
+							<targetPlatform id="cdt.managedbuild.target.gnu.platform.exe.release" name="Debug Platform" superClass="cdt.managedbuild.target.gnu.platform.exe.release"/>
+							<tool id="cdt.managedbuild.tool.gnu.archiver.base.1131285730" name="GCC Archiver" superClass="cdt.managedbuild.tool.gnu.archiver.base.2116695226"/>
+							<tool id="cdt.managedbuild.tool.gnu.cpp.compiler.exe.release.1250961764" name="GCC C++ Compiler" superClass="cdt.managedbuild.tool.gnu.cpp.compiler.exe.release.557912579"/>
+							<tool id="cdt.managedbuild.tool.gnu.c.compiler.exe.release.1533192013" name="GCC C Compiler" superClass="cdt.managedbuild.tool.gnu.c.compiler.exe.release.2136458571">
+								<option id="gnu.c.compiler.option.include.paths.1322800132" name="Include paths (-I)" superClass="gnu.c.compiler.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/include}&quot;"/>
+								</option>
+								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.578807561" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
+							</tool>
+							<tool id="cdt.managedbuild.tool.gnu.c.linker.exe.release.166151136" name="GCC C Linker" superClass="cdt.managedbuild.tool.gnu.c.linker.exe.release.230372199"/>
+							<tool id="cdt.managedbuild.tool.gnu.cpp.linker.exe.release.589260634" name="GCC C++ Linker" superClass="cdt.managedbuild.tool.gnu.cpp.linker.exe.release.768737"/>
+							<tool id="cdt.managedbuild.tool.gnu.assembler.exe.release.595515239" name="GCC Assembler" superClass="cdt.managedbuild.tool.gnu.assembler.exe.release.1405673012">
+								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.1125274443" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
 							</tool>
 						</toolChain>
 					</folderInfo>

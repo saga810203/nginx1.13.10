@@ -191,7 +191,7 @@ ngx_http_static_handler(ngx_http_request_t *r)
         return NGX_HTTP_MOVED_PERMANENTLY;
     }
 
-#if !(NGX_WIN32) /* the not regular files are probably Unix specific */
+ /* the not regular files are probably Unix specific */
 
     if (!of.is_file) {
         ngx_log_error(NGX_LOG_CRIT, log, 0,
@@ -200,7 +200,7 @@ ngx_http_static_handler(ngx_http_request_t *r)
         return NGX_HTTP_NOT_FOUND;
     }
 
-#endif
+
 
     if (r->method == NGX_HTTP_POST) {
         return NGX_HTTP_NOT_ALLOWED;

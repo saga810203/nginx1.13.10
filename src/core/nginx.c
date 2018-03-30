@@ -338,7 +338,7 @@ main(int argc, char *const *argv)
         ngx_process = NGX_PROCESS_MASTER;
     }
 
-#if !(NGX_WIN32)
+
 
     if (ngx_init_signals(cycle->log) != NGX_OK) {
         return 1;
@@ -356,7 +356,7 @@ main(int argc, char *const *argv)
         ngx_daemonized = 1;
     }
 
-#endif
+
 
     if (ngx_create_pidfile(&ccf->pid, cycle->log) != NGX_OK) {
         return 1;
@@ -1097,7 +1097,7 @@ ngx_core_module_init_conf(ngx_cycle_t *cycle, void *conf)
                NGX_OLDPID_EXT, sizeof(NGX_OLDPID_EXT));
 
 
-#if !(NGX_WIN32)
+
 
     if (ccf->user == (uid_t) NGX_CONF_UNSET_UINT && geteuid() == 0) {
         struct group   *grp;
@@ -1172,7 +1172,7 @@ ngx_core_module_init_conf(ngx_cycle_t *cycle, void *conf)
     }
     }
 
-#endif
+
 
     return NGX_CONF_OK;
 }
@@ -1181,14 +1181,7 @@ ngx_core_module_init_conf(ngx_cycle_t *cycle, void *conf)
 static char *
 ngx_set_user(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-#if (NGX_WIN32)
 
-    ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
-                       "\"user\" is not supported, ignored");
-
-    return NGX_CONF_OK;
-
-#else
 
     ngx_core_conf_t  *ccf = conf;
 
@@ -1237,7 +1230,6 @@ ngx_set_user(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     return NGX_CONF_OK;
 
-#endif
 }
 
 

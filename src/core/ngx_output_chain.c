@@ -49,11 +49,7 @@ ngx_output_chain(ngx_output_chain_ctx_t *ctx, ngx_chain_t *in)
     ngx_int_t     rc, last;
     ngx_chain_t  *cl, *out, **last_out;
 
-    if (ctx->in == NULL && ctx->busy == NULL
-#if (NGX_HAVE_FILE_AIO || NGX_THREADS)
-        && !ctx->aio
-#endif
-       )
+    if (ctx->in == NULL && ctx->busy == NULL)
     {
         /*
          * the short path for the case when the ctx->in and ctx->busy chains
@@ -88,13 +84,6 @@ ngx_output_chain(ngx_output_chain_ctx_t *ctx, ngx_chain_t *in)
     last = NGX_NONE;
 
     for ( ;; ) {
-
-#if (NGX_HAVE_FILE_AIO || NGX_THREADS)
-        if (ctx->aio) {
-            return NGX_AGAIN;
-        }
-#endif
-
         while (ctx->in) {
 
             /*
@@ -233,12 +222,7 @@ ngx_output_chain_as_is(ngx_output_chain_ctx_t *ctx, ngx_buf_t *buf)
         return 1;
     }
 
-#if (NGX_THREADS)
-    if (buf->in_file) {
-        buf->file->thread_handler = ctx->thread_handler;
-        buf->file->thread_ctx = ctx->filter_ctx;
-    }
-#endif
+
 
     if (buf->in_file && buf->file->directio) {
         return 0;
@@ -246,13 +230,7 @@ ngx_output_chain_as_is(ngx_output_chain_ctx_t *ctx, ngx_buf_t *buf)
 
     sendfile = ctx->sendfile;
 
-#if (NGX_SENDFILE_LIMIT)
 
-    if (buf->in_file && buf->file_pos >= NGX_SENDFILE_LIMIT) {
-        sendfile = 0;
-    }
-
-#endif
 
     if (!sendfile) {
 
@@ -263,11 +241,6 @@ ngx_output_chain_as_is(ngx_output_chain_ctx_t *ctx, ngx_buf_t *buf)
         buf->in_file = 0;
     }
 
-#if (NGX_HAVE_AIO_SENDFILE)
-    if (ctx->aio_preload && buf->in_file) {
-        (void) ngx_output_chain_aio_setup(ctx, buf->file);
-    }
-#endif
 
     if (ctx->need_in_memory && !ngx_buf_in_memory(buf)) {
         return 0;
@@ -281,26 +254,7 @@ ngx_output_chain_as_is(ngx_output_chain_ctx_t *ctx, ngx_buf_t *buf)
 }
 
 
-#if (NGX_HAVE_AIO_SENDFILE)
 
-static ngx_int_t
-ngx_output_chain_aio_setup(ngx_output_chain_ctx_t *ctx, ngx_file_t *file)
-{
-    ngx_event_aio_t  *aio;
-
-    if (file->aio == NULL && ngx_file_aio_init(file, ctx->pool) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
-    aio = file->aio;
-
-    aio->data = ctx->filter_ctx;
-    aio->preload_handler = ctx->aio_preload;
-
-    return NGX_OK;
-}
-
-#endif
 
 
 static ngx_int_t
@@ -308,9 +262,7 @@ ngx_output_chain_add_copy(ngx_pool_t *pool, ngx_chain_t **chain,
     ngx_chain_t *in)
 {
     ngx_chain_t  *cl, **ll;
-#if (NGX_SENDFILE_LIMIT)
-    ngx_buf_t    *b, *buf;
-#endif
+
 
     ll = chain;
 
@@ -325,43 +277,11 @@ ngx_output_chain_add_copy(ngx_pool_t *pool, ngx_chain_t **chain,
             return NGX_ERROR;
         }
 
-#if (NGX_SENDFILE_LIMIT)
 
-        buf = in->buf;
-
-        if (buf->in_file
-            && buf->file_pos < NGX_SENDFILE_LIMIT
-            && buf->file_last > NGX_SENDFILE_LIMIT)
-        {
-            /* split a file buf on two bufs by the sendfile limit */
-
-            b = ngx_calloc_buf(pool);
-            if (b == NULL) {
-                return NGX_ERROR;
-            }
-
-            ngx_memcpy(b, buf, sizeof(ngx_buf_t));
-
-            if (ngx_buf_in_memory(buf)) {
-                buf->pos += (ssize_t) (NGX_SENDFILE_LIMIT - buf->file_pos);
-                b->last = buf->pos;
-            }
-
-            buf->file_pos = NGX_SENDFILE_LIMIT;
-            b->file_last = NGX_SENDFILE_LIMIT;
-
-            cl->buf = b;
-
-        } else {
-            cl->buf = buf;
-            in = in->next;
-        }
-
-#else
         cl->buf = in->buf;
         in = in->next;
 
-#endif
+
 
         cl->next = NULL;
         *ll = cl;
@@ -565,32 +485,7 @@ ngx_output_chain_copy_buf(ngx_output_chain_ctx_t *ctx)
 
 #endif
 
-#if (NGX_HAVE_FILE_AIO)
-        if (ctx->aio_handler) {
-            n = ngx_file_aio_read(src->file, dst->pos, (size_t) size,
-                                  src->file_pos, ctx->pool);
-            if (n == NGX_AGAIN) {
-                ctx->aio_handler(ctx, src->file);
-                return NGX_AGAIN;
-            }
 
-        } else
-#endif
-#if (NGX_THREADS)
-        if (ctx->thread_handler) {
-            src->file->thread_task = ctx->thread_task;
-            src->file->thread_handler = ctx->thread_handler;
-            src->file->thread_ctx = ctx->filter_ctx;
-
-            n = ngx_thread_read(src->file, dst->pos, (size_t) size,
-                                src->file_pos, ctx->pool);
-            if (n == NGX_AGAIN) {
-                ctx->thread_task = src->file->thread_task;
-                return NGX_AGAIN;
-            }
-
-        } else
-#endif
         {
             n = ngx_read_file(src->file, dst->pos, (size_t) size,
                               src->file_pos);

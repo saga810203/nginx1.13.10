@@ -4451,25 +4451,6 @@ ngx_http_v2_idle_handler(ngx_event_t *rev)
         return;
     }
 
-#if (NGX_HAVE_KQUEUE)
-
-    if (ngx_event_flags & NGX_USE_KQUEUE_EVENT) {
-        if (rev->pending_eof) {
-            c->log->handler = NULL;
-            ngx_log_error(NGX_LOG_INFO, c->log, rev->kq_errno,
-                          "kevent() reported that client %V closed "
-                          "idle connection", &c->addr_text);
-#if (NGX_HTTP_SSL)
-            if (c->ssl) {
-                c->ssl->no_send_shutdown = 1;
-            }
-#endif
-            ngx_http_close_connection(c);
-            return;
-        }
-    }
-
-#endif
 
     c->destroyed = 0;
     ngx_reusable_connection(c, 0);
