@@ -242,6 +242,7 @@ ngx_http_upstream_http2_create_conf(ngx_conf_t *cf) {
 	conf->max_conns = 128;
 	conf->sid_mask = 32;
 	conf->http2_connection_pool_size = 8192;
+	ngx_queue_init(&conf->need_free_frame_queue);
 	/*
 	 * set by ngx_pcalloc():
 	 *

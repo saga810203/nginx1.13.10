@@ -99,6 +99,9 @@ static ngx_int_t ngx_http_upstream_init_http2_peer(ngx_http_request_t *r, ngx_ht
 	ngx_http_upstream_http2_peer_data_t *kp;
 	ngx_http_upstream_http2_srv_conf_t *kcf;
 	ngx_http2_stream_t* stream;
+	ngx_event_t* rev;
+	ngx_event_t* wev;
+	ngx_connection_t * c;
 	ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"init http2 peer");
 
 	kcf = ngx_http_conf_upstream_srv_conf(us, ngx_http_upstream_http2_module);
@@ -109,16 +112,12 @@ static ngx_int_t ngx_http_upstream_init_http2_peer(ngx_http_request_t *r, ngx_ht
 	}
 	stream = ngx_http_get_module_ctx(r, ngx_http_upstream_http2_module);
 	if (stream == NULL) {
-		stream = ngx_palloc(r->pool, sizeof(ngx_http2_stream_t));
+		stream = ngx_http_upstream_http2_stream_create(r);
 		if (stream == NULL) {
 			return NGX_ERROR;
 		}
-
-		stream->connection->read = &stream->read;
-		stream->connection->write = &stream->write;
 		ngx_http_set_ctx(r, stream, ngx_http_upstream_http2_module);
 	}
-
 	if (kcf->original_init_peer(r, us) != NGX_OK) {
 		return NGX_ERROR;
 	}
@@ -135,197 +134,28 @@ static ngx_int_t ngx_http_upstream_init_http2_peer(ngx_http_request_t *r, ngx_ht
 	return NGX_OK;
 }
 
-static ngx_int_t ngx_http_upstream_http2_connect(ngx_peer_connection_t *pc, ngx_http_upstream_http2_peer_data_t *kp) {
-	int rc, type;
-#if (NGX_HAVE_IP_BIND_ADDRESS_NO_PORT || NGX_LINUX)
-	in_port_t port;
-#endif
-	ngx_int_t event;
-	ngx_err_t err;
-	ngx_uint_t level;
-	ngx_socket_t s;
-	ngx_event_t *rev, *wev;
-	ngx_connection_t *c;
-	ngx_log_t *log;
-	ngx_http_upstream_http2_srv_conf_t *hsc;
 
-	hsc = kp->conf;
-	log = hsc->log;
 
-	type = SOCK_STREAM;
 
-	s = ngx_socket(pc->sockaddr->sa_family, SOCK_STREAM, 0);
-
-	ngx_log_debug2(NGX_LOG_DEBUG_EVENT,log, 0, "%s socket %d",
-			(type == SOCK_STREAM) ? "stream" : "dgram", s);
-
-	if (s == (ngx_socket_t) -1) {
-		ngx_log_error(NGX_LOG_ALERT, log, ngx_socket_errno, ngx_socket_n " failed");
-		return NGX_ERROR;
-	}
-
-	c = ngx_get_connection(s, log);
-
-	if (c == NULL) {
-		if (ngx_close_socket(s) == -1) {
-			ngx_log_error(NGX_LOG_ALERT, log, ngx_socket_errno, ngx_close_socket_n "failed");
-		}
-		return NGX_ERROR;
-	}
-
-	c->type = SOCK_STREAM;
-
-	if (hsc->rcvbuf) {
-		if (setsockopt(s, SOL_SOCKET, SO_RCVBUF, (const void *) &hsc->rcvbuf, sizeof(int)) == -1) {
-			ngx_log_error(NGX_LOG_ALERT, log, ngx_socket_errno, "setsockopt(SO_RCVBUF) failed");
-			goto failed;
-		}
-	}
-
-	if (ngx_nonblocking(s) == -1) {
-		ngx_log_error(NGX_LOG_ALERT, log, ngx_socket_errno, ngx_nonblocking_n " failed");
-
-		goto failed;
-	}
-
-	c->recv = ngx_recv;
-	c->send = ngx_send;
-	c->recv_chain = ngx_recv_chain;
-	c->send_chain = ngx_send_chain;
-	c->sendfile = 0;
-	if (pc->sockaddr->sa_family == AF_UNIX) {
-		c->tcp_nopush = NGX_TCP_NOPUSH_DISABLED;
-		c->tcp_nodelay = NGX_TCP_NODELAY_DISABLED;
-	}
-
-	c->log_error = NGX_ERROR_IGNORE_ECONNRESET;
-
-	rev = c->read;
-	wev = c->write;
-
-	rev->log = log;
-	wev->log = log;
-
-	pc->connection = c;
-
-	c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
-
-	if (ngx_add_conn) {
-		if (ngx_add_conn(c) == NGX_ERROR) {
-			goto failed;
-		}
-	}
-
-	ngx_log_debug3(NGX_LOG_DEBUG_EVENT, pc->log, 0,
-			"connect to %V, fd:%d #%uA", pc->name, s, c->number);
-
-	rc = connect(s, pc->sockaddr, pc->socklen);
-
-	if (rc == -1) {
-		err = ngx_socket_errno;
-
-		if (err != NGX_EINPROGRESS) {
-			if (err == NGX_ECONNREFUSED
-
-			/*
-			 * Linux returns EAGAIN instead of ECONNREFUSED
-			 * for unix sockets if listen queue is full
-			 */
-			|| err == NGX_EAGAIN
-
-			|| err == NGX_ECONNRESET || err == NGX_ENETDOWN || err == NGX_ENETUNREACH || err == NGX_EHOSTDOWN || err == NGX_EHOSTUNREACH) {
-				level = NGX_LOG_ERR;
-
-			} else {
-				level = NGX_LOG_CRIT;
-			}
-
-			ngx_log_error(level, c->log, err, "connect() to %V failed", pc->name);
-
-			ngx_close_connection(c);
-			pc->connection = NULL;
-
-			return NGX_DECLINED;
-		}
-	}
-
-	if (ngx_add_conn) {
-		if (rc == -1) {
-
-			/* NGX_EINPROGRESS */
-
-			return NGX_AGAIN;
-		}
-
-		ngx_log_debug0(NGX_LOG_DEBUG_EVENT,log, 0, "connected");
-
-		wev->ready = 1;
-
-		return NGX_OK;
-	}
-
-	/* kqueue */
-
-	event = NGX_CLEAR_EVENT;
-
-	if (ngx_add_event(rev, NGX_READ_EVENT, event) != NGX_OK) {
-		goto failed;
-	}
-
-	if (rc == -1) {
-
-		/* NGX_EINPROGRESS */
-
-		if (ngx_add_event(wev, NGX_WRITE_EVENT, event) != NGX_OK) {
-			goto failed;
-		}
-
-		return NGX_AGAIN;
-	}
-
-	ngx_log_debug0(NGX_LOG_DEBUG_EVENT, pc->log, 0, "connected");
-
-	wev->ready = 1;
-
-	return NGX_OK;
-
-	failed:
-
-	ngx_close_connection(c);
-	pc->connection = NULL;
-
-	return NGX_ERROR;
-
+ void ngx_http_upstream_http2_close_stream_in_server(ngx_http2_server_t* server){
+	ngx_queue_t *streams=&server->stream_queue;
+	ngx_queue_t *q;
+	ngx_http2_stream_t stream;
+	ngx_connection_t* c;
+    for (q = ngx_queue_head(streams);
+         q != ngx_queue_sentinel(streams);
+         q = ngx_queue_next(q))
+    {
+        stream = ngx_queue_data(q, ngx_http2_stream_t, queue);
+        c = &stream->connection;
+        c->error = 1;
+        c->read->ready = 1;
+        c->write->ready=1;
+        ngx_post_event(c->write, &ngx_posted_events);
+    }
+    ngx_queue_init(streams);
 }
 
-static void ngx_http_upstream_http2_first_write_handler(ngx_event_t* wev) {
-
-}
-static ngx_int_t ngx_http_upstream_get_init_http2_connection(ngx_peer_connection_t *pc, ngx_http_upstream_http2_peer_data_t *kp) {
-	ngx_connection_t *c;
-	ngx_http_upstream_http_v2_connection_t * h2c;
-	c = pc->connection;
-	pc->connection = NULL;
-	c->pool = ngx_create_pool(kp->conf->pool_size, kp->conf->log);
-	if (c->pool == NULL) {
-		ngx_close_connection(c);
-		return NGX_ERROR;
-	}
-
-	h2c = ngx_pcalloc(c->pool, sizeof(ngx_http_upstream_http_v2_connection_t));
-	if (NULL == h2c) {
-		ngx_destroy_pool(c->pool);
-		c->pool = NULL;
-		ngx_close_connection(c);
-		return NGX_ERROR;
-	}
-
-	c->data = h2c;
-	h2c->connection = c;
-
-	c->write->handler = ngx_http_upstream_http2_first_write_handler;
-
-}
 
 static ngx_int_t ngx_http_upstream_get_http2_connection(ngx_peer_connection_t *pc, ngx_http_upstream_http2_peer_data_t *kp) {
 	ngx_http2_server_t* server = kp->server;
@@ -353,9 +183,10 @@ static ngx_int_t ngx_http_upstream_get_http2_connection(ngx_peer_connection_t *p
 		return NGX_AGAIN;
 	}
 
-	queue = *usf->free_connections;
-
-	if (ngx_queue_empty(queue)) {
+	h2c = usf->free_connections;
+	if(h2c){
+		usf->free_connections = h2c->data;
+	}else{
 		if (usf->use_conns >= usf->max_conns) {
 			return NGX_BUSY;
 		}
@@ -363,19 +194,12 @@ static ngx_int_t ngx_http_upstream_get_http2_connection(ngx_peer_connection_t *p
 		if (h2c == NULL) {
 			return NGX_ERROR;
 		}
-		h2c->connection.read = &h2c->read;
-		h2c->connection.write = &h2c->write;
-		queue = &h2c->streams;
-		for (i = 0; i <= usf->sid_mask; ++i) {
-			ngx_queue_init(queue);
-			++queue;
-		}
 		++usf->use_conns;
-	} else {
-		queue = ngx_queue_head(queue);
-		ngx_queue_remove(queue);
-		h2c = ngx_queue_data(queue, ngx_http2_connection_t, queue);
-
+	}
+	queue = &h2c->streams;
+	for (i = 0; i <= usf->sid_mask; ++i) {
+		ngx_queue_init(queue);
+		++queue;
 	}
 	ngx_http_upstream_http2_server_add_stream(server,stream);
 	h2c->server = server;
