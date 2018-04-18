@@ -227,6 +227,20 @@ char* ngx_http_upstream_http2_conn_pool_size(ngx_conf_t *cf, ngx_command_t *cmd,
 	}
 	return NGX_CONF_OK;
 }
+char* ngx_http_upstream_http2_max_streams(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+	ngx_int_t n;
+	ngx_int_t mask;
+	ngx_str_t * value = cf->args->elts;
+	ngx_http_upstream_http2_srv_conf_t *kcf = conf;
+	n = ngx_atoi(value[1].data, value[1].len);
+	if (n == NGX_ERROR || n == 0) {
+		return "invalid paramter http2_max_streams";
+	}
+	if(n >128) {
+		kcf->max_streams = n;
+	}
+	return NGX_CONF_OK;
+}
 
 void *
 ngx_http_upstream_http2_create_conf(ngx_conf_t *cf) {
@@ -241,6 +255,7 @@ ngx_http_upstream_http2_create_conf(ngx_conf_t *cf) {
 	conf->buffer_count = 1024 * 1024;
 	conf->max_conns = 128;
 	conf->sid_mask = 32;
+	conf->max_streams = 1024;
 	conf->http2_connection_pool_size = 8192;
 	ngx_queue_init(&conf->need_free_frame_queue);
 	/*
@@ -283,6 +298,11 @@ ngx_command_t ngx_http_upstream_http2_commands[] = {
 		{
 				ngx_string("http2_conn_pool_size"),
 				NGX_HTTP_UPS_CONF | NGX_CONF_TAKE1, ngx_http_upstream_http2_conn_pool_size,
+				NGX_HTTP_SRV_CONF_OFFSET, 0,NULL
+		},
+		{
+				ngx_string("http2_max_stream"),
+				NGX_HTTP_UPS_CONF | NGX_CONF_TAKE1, ngx_http_upstream_http2_max_streams,
 				NGX_HTTP_SRV_CONF_OFFSET, 0,NULL
 		},
 

@@ -108,5 +108,6 @@ void ngx_http_upstream_http2_server_add_stream(ngx_http2_server_t* server, ngx_h
 	c->error = 0;
 	c->recv = ngx_http2_read_again;
 	c->send = ngx_http2_send_again;
+	stream->state = NGX_HTTP2_STREAM_STATE_WATTING_IN_SERVER;
 	ngx_queue_insert_tail(&server->stream_queue, &stream->queue);
 }

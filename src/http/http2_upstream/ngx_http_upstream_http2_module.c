@@ -174,8 +174,11 @@ static ngx_int_t ngx_http_upstream_get_http2_connection(ngx_peer_connection_t *p
 		h2c = ngx_queue_data(queue, ngx_http2_connection_t, queue);
 		pc->connection = &stream->connection;
 		stream->h2c = h2c;
-		ngx_http_upstream_http2_connection_add_stream(stream);
-		return NGX_AGAIN;
+		stream->state = NGX_HTTP2_STREAM_STATE_WATTING_IN_CONNECTION;
+		ngx_queue_insert_tail(&h2c->idle_streams, &stream->queue);
+		stream->connection->write->accept = 1;
+		stream->connection->write->ready = 1;
+		return NGX_DONE;
 	}
 	if (server->connection) {
 		ngx_http_upstream_http2_server_add_stream(server,stream);
@@ -195,11 +198,6 @@ static ngx_int_t ngx_http_upstream_get_http2_connection(ngx_peer_connection_t *p
 			return NGX_ERROR;
 		}
 		++usf->use_conns;
-	}
-	queue = &h2c->streams;
-	for (i = 0; i <= usf->sid_mask; ++i) {
-		ngx_queue_init(queue);
-		++queue;
 	}
 	ngx_http_upstream_http2_server_add_stream(server,stream);
 	h2c->server = server;

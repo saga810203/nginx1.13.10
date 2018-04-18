@@ -35,6 +35,14 @@
 #define NGX_HTTP2_WINDOW_UPDATE_FRAME  0x8
 #define NGX_HTTP2_CONTINUATION_FRAME   0x9
 
+
+#define NGX_HTTP2_STREAM_STATE_WATTING_IN_SERVER   0x00
+#define NGX_HTTP2_STREAM_STATE_WATTING_IN_CONNECTION   0x01
+#define NGX_HTTP2_STREAM_STATE_OPENED   0x02
+#define NGX_HTTP2_STREAM_STATE_LOCAL_CLOSED   0x03
+#define NGX_HTTP2_STREAM_STATE__CLOSED   0x04
+
+
 typedef struct ngx_http_upstream_http2_srv_conf_s ngx_http_upstream_http2_srv_conf_t;
 typedef struct ngx_http2_server_s ngx_http2_server_t;
 typedef struct ngx_http_upstream_http2_peer_data_s ngx_http_upstream_http2_peer_data_t;
@@ -45,6 +53,9 @@ typedef struct ngx_http2_connection_s ngx_http2_connection_t;
 typedef struct ngx_http2_stream_s ngx_http2_stream_t;
 typedef struct ngx_http2_frame_s ngx_http2_frame_t;
 
+
+
+typedef int (*ngx_http2_handler_pt) (ngx_http2_connection_t *h2c);
 
 typedef struct {
     ngx_str_t                        name;
@@ -64,6 +75,7 @@ struct ngx_http_upstream_http2_srv_conf_s {
 
 	ngx_http2_server_t* servers;
 	int servers_size;
+	ngx_uint_t max_streams;
 
 	int rcvbuf;
 
@@ -123,6 +135,8 @@ struct ngx_http2_connection_recv_part_s {
 		u_char type;
 		u_char flag;
 
+		ngx_uint_t  min_len;
+		ngx_http2_handler_pt handler;
 
 		size_t recv_window;
 		u_char* buffer;
@@ -130,28 +144,21 @@ struct ngx_http2_connection_recv_part_s {
 		ngx_uint_t len;
 		ngx_uint_t readable_size;
 
-		u_char  state_buffer[16];
-		unsigned state_len;
-
-
 };
 struct ngx_http2_connection_send_part_s {
-
-		size_t send_window;
-
+	size_t send_window;
 	u_char* pos;
 	ngx_uint_t len;
-
-	int last_frame_stream_id;
-	u_char last_frame_type;
-	u_char last_frame_falg;
-	int last_frame_length;
 
 	ngx_http2_frame_t* first_frame;
 	ngx_http2_frame_t* last_frame;
 
-	ngx_http2_frame_t* first_data_frame;
-	ngx_http2_frame_t* last_data_frame;
+
+	ngx_queue_t flow_control_queue;
+
+	ngx_uint_t num_ping;
+	ngx_uint_t num_ping_ack;
+
 };
 struct ngx_http2_connection_s {
 	void* data;
@@ -167,13 +174,24 @@ struct ngx_http2_connection_s {
 
 	ngx_pool_t *pool;
 
-	ngx_uint_t last_sid;
+	ngx_uint_t next_sid;
 
 	ngx_http2_connection_recv_part_t recv;
 	ngx_http2_connection_send_part_t send;
+	unsigned recv_error :1;
+	unsigned recv_goaway :1;
+	unsigned send_error :1;
+	unsigned send_goaway :1;
 
 
-	ngx_http2_frame_t* last_queueed_data_frame;
+
+
+
+	ngx_queue_t idle_streams;
+
+
+
+
 
 	/*last element*/
 
@@ -203,7 +221,7 @@ struct ngx_http2_stream_s {
 	 *   0   in server wait  connect;
 	 *
 	 * */
-	unsigned char state;
+	unsigned char state;    //0: waiting in server    1: waiting in connection  2:open  3  local close    4 close
 
 	u_char* recv_buffer;
 	u_char* recv_pos;
@@ -274,7 +292,8 @@ static ngx_inline void ngx_http2_free_frame(ngx_http_upstream_http2_srv_conf_t* 
 		queue = ngx_queue_head(queue);
 		event = ngx_queue_data(queue, ngx_event_t, queue);
 		ngx_queue_remove(queue);
-		event->handler(event);
+		event->posted = 1;
+        ngx_queue_insert_tail(&ngx_posted_events, &event->queue);
 	}
 }
 
