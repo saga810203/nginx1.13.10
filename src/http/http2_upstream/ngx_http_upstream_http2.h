@@ -13,9 +13,16 @@
 #include <ngx_http.h>
 #include <ngx_http_v2.h>
 
-#define NGX_HTTP2_MAX_FLOW_CONTROL_SIZE  2147483647
-#define NGX_HTTP2_HALF_FLOW_CONTROL_SIZE 1073741673
+#define NGX_HTTP2_MAX_FLOW_CONTROL_SIZE  2147483647U
+#define NGX_HTTP2_HALF_FLOW_CONTROL_SIZE 1073741673U
 
+
+#define NGX_HTTP2_SETTINGS_ACK_SIZE            0
+#define NGX_HTTP2_RST_STREAM_SIZE              4
+#define NGX_HTTP2_PRIORITY_SIZE                5
+#define NGX_HTTP2_PING_SIZE                    8
+#define NGX_HTTP2_GOAWAY_SIZE                  8
+#define NGX_HTTP2_WINDOW_UPDATE_SIZE           4
 
 #define NGX_HTTP2_NO_FLAG              0x00
 #define NGX_HTTP2_ACK_FLAG             0x01
@@ -56,6 +63,10 @@ typedef struct ngx_http2_frame_s ngx_http2_frame_t;
 
 
 typedef int (*ngx_http2_handler_pt) (ngx_http2_connection_t *h2c);
+
+typedef void (*ngx_http2_send_frame)(ngx_http2_connection_t* h2c, ngx_http2_frame_t* frame);
+typedef void (*ngx_http2_send_ping)(ngx_http2_connection_t* h2c, ngx_http2_frame_t* frame,int ack);
+typedef void (*ngx_http2_send_header)(ngx_http2_connection_t* h2c, ngx_http2_frame_t* begin,ngx_http2_frame_t* end);
 
 typedef struct {
     ngx_str_t                        name;
@@ -159,6 +170,7 @@ struct ngx_http2_connection_send_part_s {
 	ngx_uint_t num_ping;
 	ngx_uint_t num_ping_ack;
 
+
 };
 struct ngx_http2_connection_s {
 	void* data;
@@ -167,6 +179,7 @@ struct ngx_http2_connection_s {
 	ngx_uint_t max_streams;
 	ngx_uint_t processing;
 
+	size_t headers_table_size;
 
 	size_t init_window;
 
@@ -189,7 +202,9 @@ struct ngx_http2_connection_s {
 
 	ngx_queue_t idle_streams;
 
-
+	ngx_http2_send_frame send_frame;
+	ngx_http2_send_ping send_ping;
+	ngx_http2_send_ping send_headers;
 
 
 
@@ -205,7 +220,7 @@ struct ngx_http2_stream_s {
 	ngx_event_t write;
 	ngx_uint_t id;
 
-	ngx_queue_t queue_in_connection;
+	ngx_queue_t queue_in_waiting;
 
 	ssize_t send_window;
 	size_t recv_window;
@@ -266,6 +281,9 @@ void ngx_http_upstream_http2_server_add_stream(ngx_http2_server_t* server, ngx_h
 ssize_t ngx_http2_stream_recv(ngx_connection_t* c, u_char* buf, size_t size);
 ssize_t ngx_http2_stream_send(ngx_connection_t* c, u_char* buf, size_t size);
 
+
+
+
 static ngx_inline ngx_http2_frame_t* ngx_http2_get_frame(ngx_http_upstream_http2_srv_conf_t* scf) {
 	ngx_http2_frame_t* frame = scf->free_frames;
 	if (frame) {
@@ -282,19 +300,53 @@ static ngx_inline ngx_http2_frame_t* ngx_http2_get_frame(ngx_http_upstream_http2
 	return frame;
 }
 
+static ngx_inline void ngx_http2_post_need_buffer_events(ngx_http_upstream_http2_srv_conf_t* scf,ngx_event_t* event){
+	if(event->posted){
+		ngx_queue_remove(&event->queue);
+	}else{
+		event->posted = 1;
+	}
+	event->active = 0;
+	ngx_queue_insert_tail(&scf->need_free_frame_queue,&event->queue);
+}
+
 static ngx_inline void ngx_http2_free_frame(ngx_http_upstream_http2_srv_conf_t* scf, ngx_http2_frame_t* frame) {
 	ngx_queue_t *queue = &scf->need_free_frame_queue;
 	ngx_event_t* event;
-
 	frame->data = scf->free_frames;
 	scf->free_frames = frame;
 	if (!ngx_queue_empty(queue)) {
 		queue = ngx_queue_head(queue);
 		event = ngx_queue_data(queue, ngx_event_t, queue);
 		ngx_queue_remove(queue);
-		event->posted = 1;
-        ngx_queue_insert_tail(&ngx_posted_events, &event->queue);
+		event->active = 1;
+		event->posted= 0;
+		event->handler(event);
+        //ngx_queue_insert_tail(&ngx_posted_events, &event->queue);
 	}
+}
+
+static ngx_inline ngx_http2_stream_t* ngx_http_upstream_http2_find_stream(ngx_http2_connection_t* h2c,ngx_uint_t id){
+	ngx_http2_stream_t* stream;
+	ngx_queue_t* queue,*q;
+	queue =&h2c->streams;
+	queue = &queue[(id>>1) & h2c->server->conf->sid_mask];
+	for (q = ngx_queue_head(queue); q != ngx_queue_sentinel(queue); q = ngx_queue_next(q)) {
+		stream = ngx_queue_data(q,ngx_http2_stream_t,queue);
+		if(stream->id == id){
+			return stream;
+		}
+	}
+	return NULL;
+}
+static ngx_inline void ngx_http_upstream_http2_stream_move_with_sid(ngx_http2_stream_t* stream){
+	ngx_http2_connection_t* h2c = stream->h2c;
+	ngx_queue_t* queue,*q;
+	q = &stream->queue;
+	ngx_queue_remove(q);
+	queue =&h2c->streams;
+	queue = &queue[(stream->id>>1) & h2c->server->conf->sid_mask];
+	ngx_queue_insert_tail(queue,q);
 }
 
 #endif /* _NGX_HTTP_UPSTREAM_HTTP2_H_INCLUDE_ */

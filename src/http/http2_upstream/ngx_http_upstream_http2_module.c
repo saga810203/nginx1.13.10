@@ -176,7 +176,6 @@ static ngx_int_t ngx_http_upstream_get_http2_connection(ngx_peer_connection_t *p
 		stream->h2c = h2c;
 		stream->state = NGX_HTTP2_STREAM_STATE_WATTING_IN_CONNECTION;
 		ngx_queue_insert_tail(&h2c->idle_streams, &stream->queue);
-		stream->connection->write->accept = 1;
 		stream->connection->write->ready = 1;
 		return NGX_DONE;
 	}
