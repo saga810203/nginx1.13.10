@@ -59,7 +59,7 @@ typedef struct ngx_http2_connection_recv_part_s ngx_http2_connection_recv_part_t
 typedef struct ngx_http2_connection_s ngx_http2_connection_t;
 typedef struct ngx_http2_stream_s ngx_http2_stream_t;
 typedef struct ngx_http2_frame_s ngx_http2_frame_t;
-
+typedef struct ngx_http2_hpack_s ngx_http2_hpack_t;
 
 
 typedef int (*ngx_http2_handler_pt) (ngx_http2_connection_t *h2c);
@@ -67,6 +67,12 @@ typedef int (*ngx_http2_handler_pt) (ngx_http2_connection_t *h2c);
 typedef void (*ngx_http2_send_frame)(ngx_http2_connection_t* h2c, ngx_http2_frame_t* frame);
 typedef void (*ngx_http2_send_ping)(ngx_http2_connection_t* h2c, ngx_http2_frame_t* frame,int ack);
 typedef void (*ngx_http2_send_header)(ngx_http2_connection_t* h2c, ngx_http2_frame_t* begin,ngx_http2_frame_t* end);
+
+
+
+
+
+
 
 typedef struct {
     ngx_str_t                        name;
@@ -137,7 +143,17 @@ struct ngx_http2_frame_s {
 		(h2c)->recv.sid =((p)[5]<< 24) | ((p)[6]<< 16) | ((7)[1]<<8)|((p)[8]);
 
 
+struct ngx_http2_hpack_s{
+		uint32_t  size;
+		uint32_t  capacity;
+		u_char*   data;
+		u_char*   next;
 
+
+		u_char**   index;
+		uint32_t  rds_headers;
+		uint32_t  bytes_headers;
+};
 
 
 struct ngx_http2_connection_recv_part_s {
@@ -154,6 +170,8 @@ struct ngx_http2_connection_recv_part_s {
 		u_char* pos;
 		ngx_uint_t len;
 		ngx_uint_t readable_size;
+
+		ngx_http2_hpack_t hpack;
 
 };
 struct ngx_http2_connection_send_part_s {
@@ -281,7 +299,13 @@ void ngx_http_upstream_http2_server_add_stream(ngx_http2_server_t* server, ngx_h
 ssize_t ngx_http2_stream_recv(ngx_connection_t* c, u_char* buf, size_t size);
 ssize_t ngx_http2_stream_send(ngx_connection_t* c, u_char* buf, size_t size);
 
+int32_t ngx_http2_hpack_init(ngx_http2_hpack_t* hpack,uint32_t size);
+int32_t ngx_http2_hpack_add(ngx_http2_hpack_t* hpack,ngx_str_t* name,ngx_str_t* value);
 
+ngx_str_t* ngx_http2_hpack_index_name(ngx_http2_hpack_t* hpack,uint32_t idx);
+ngx_str_t* ngx_http2_hpack_index_header(ngx_http2_hpack_t* hpack,uint32_t idx);
+
+int32_t ngx_http2_hpack_resize(ngx_http2_hpack_t* hpack,uint32_t new_size);
 
 
 static ngx_inline ngx_http2_frame_t* ngx_http2_get_frame(ngx_http_upstream_http2_srv_conf_t* scf) {
