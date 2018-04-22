@@ -9,7 +9,108 @@
 
 
 
-int32_t ngx_http2_hpack_init(ngx_http2_hpack_t* hpack,uint32_t size){
+typedef struct{
+	ngx_str_t name;
+	ngx_str_t value;
+} ngx_http2_static_headers_item;
+
+
+
+static ngx_http2_static_headers_item ngx_http2_headers_static[]={
+	{ ngx_string(":authority"), ngx_string("") },
+	{ ngx_string(":method"), ngx_string("GET") },
+	{ ngx_string(":method"), ngx_string("POST") },
+	{ ngx_string(":path"), ngx_string("/") },
+	{ ngx_string(":path"), ngx_string("/index.html") },
+	{ ngx_string(":scheme"), ngx_string("http") },
+	{ ngx_string(":scheme"), ngx_string("https") },
+	{ ngx_string(":status"), ngx_string("200") },
+	{ ngx_string(":status"), ngx_string("204") },
+	{ ngx_string(":status"), ngx_string("206") },
+	{ ngx_string(":status"), ngx_string("304") },
+	{ ngx_string(":status"), ngx_string("400") },
+	{ ngx_string(":status"), ngx_string("404") },
+	{ ngx_string(":status"), ngx_string("500") },
+	{ ngx_string("accept-charset"), ngx_string("") },
+	{ ngx_string("accept-encoding"), ngx_string("gzip, deflate") },
+	{ ngx_string("accept-language"), ngx_string("") },
+	{ ngx_string("accept-ranges"), ngx_string("") },
+	{ ngx_string("accept"), ngx_string("") },
+	{ ngx_string("access-control-allow-origin"), ngx_string("") },
+	{ ngx_string("age"), ngx_string("") },
+	{ ngx_string("allow"), ngx_string("") },
+	{ ngx_string("authorization"), ngx_string("") },
+	{ ngx_string("cache-control"), ngx_string("") },
+	{ ngx_string("content-disposition"), ngx_string("") },
+	{ ngx_string("content-encoding"), ngx_string("") },
+	{ ngx_string("content-language"), ngx_string("") },
+	{ ngx_string("content-length"), ngx_string("") },
+	{ ngx_string("content-location"), ngx_string("") },
+	{ ngx_string("content-range"), ngx_string("") },
+	{ ngx_string("content-type"), ngx_string("") },
+	{ ngx_string("cookie"), ngx_string("") },
+	{ ngx_string("date"), ngx_string("") },
+	{ ngx_string("etag"), ngx_string("") },
+	{ ngx_string("expect"), ngx_string("") },
+	{ ngx_string("expires"), ngx_string("") },
+	{ ngx_string("from"), ngx_string("") },
+	{ ngx_string("host"), ngx_string("") },
+	{ ngx_string("if-match"), ngx_string("") },
+	{ ngx_string("if-modified-since"), ngx_string("") },
+	{ ngx_string("if-none-match"), ngx_string("") },
+	{ ngx_string("if-range"), ngx_string("") },
+	{ ngx_string("if-unmodified-since"), ngx_string("") },
+	{ ngx_string("last-modified"), ngx_string("") },
+	{ ngx_string("link"), ngx_string("") },
+	{ ngx_string("location"), ngx_string("") },
+	{ ngx_string("max-forwards"), ngx_string("") },
+	{ ngx_string("proxy-authenticate"), ngx_string("") },
+	{ ngx_string("proxy-authorization"), ngx_string("") },
+	{ ngx_string("range"), ngx_string("") },
+	{ ngx_string("referer"), ngx_string("") },
+	{ ngx_string("refresh"), ngx_string("") },
+	{ ngx_string("retry-after"), ngx_string("") },
+	{ ngx_string("server"), ngx_string("") },
+	{ ngx_string("set-cookie"), ngx_string("") },
+	{ ngx_string("strict-transport-security"), ngx_string("") },
+	{ ngx_string("transfer-encoding"), ngx_string("") },
+	{ ngx_string("user-agent"), ngx_string("") },
+	{ ngx_string("vary"), ngx_string("") },
+	{ ngx_string("via"), ngx_string("") },
+	{ ngx_string("www-authenticate"), ngx_string("") },
+};
+
+int32_t ngx_http2_hpack_get_index_header(ngx_http2_connection_t* h2c,int32_t idx,int32_t nameonly){
+	ngx_http2_static_headers_item* sheader;
+	ngx_str_t* value;
+
+	ngx_http2_header_t* header;
+
+	header = ngx_pcalloc(h2c->recv.pool,sizeof(ngx_http2_header_t));
+	ngx_queue_insert_tail(&h2c->recv.headers_queue,&header->queue);
+	h2c->recv.c_header = header;
+
+	if(idx){
+		--idx;
+		if(idx< 61){
+			sheader = &ngx_http2_headers_static[idx];
+			header->name.len = sheader->name.len;
+			header->name.data = sheader->name.data;
+			if(!nameonly){
+				header->value.len = sheader->value.len;
+				header->value.data = sheader->value.data;
+			}
+		}else{
+			idx-=61;
+		}
+	}else{
+		return NGX_ERROR;
+	}
+
+
+}
+
+ int32_t ngx_http2_hpack_init(ngx_http2_hpack_t* hpack,uint32_t size){
 	uint32_t capacity = 4096;
 	u_char* data;
 
@@ -62,7 +163,7 @@ int32_t ngx_http2_hpack_remove(ngx_http2_hpack_t* hpack,uint32_t size){
 	hpack->bytes_headers-=real_size;
 	hpack->rds_headers -=num;
 	if(hpack->rds_headers){
-		ngx_memcpy(hpack->data,b_index, hpack->bytes_headers - (32 - (sizeof(uint32_t) * 2))) ;
+		ngx_memmove(hpack->data,b_index, hpack->bytes_headers - (32 - (sizeof(uint32_t) * 2))) ;
 		hpack->next = hpack->data + hpack->bytes_headers - (32 - (sizeof(uint32_t) * 2));
 		i = 0 ;
 		b_index = hpack->data;
@@ -85,6 +186,7 @@ int32_t ngx_http2_hpack_remove(ngx_http2_hpack_t* hpack,uint32_t size){
 		hpack->next = hpack->data;
 
 	}
+	return 0;
 }
 
 int32_t ngx_http2_hpack_add(ngx_http2_hpack_t* hpack,ngx_str_t* name,ngx_str_t* value){
@@ -109,47 +211,69 @@ int32_t ngx_http2_hpack_add(ngx_http2_hpack_t* hpack,ngx_str_t* name,ngx_str_t* 
 
 	hpack->bytes_headers+=size;
 
-	p = hpack->index;
+	p = (char*)hpack->index;
 	p -=sizeof(void*);
 	if(hpack->rds_headers){
-		ngx_memcpy(p,hpack->index,sizeof(void*)* hpack->rds_headers);
+		ngx_memmove(p,hpack->index,sizeof(void*)* hpack->rds_headers);
 	}
 	hpack->index = (u_char**)p;
 	hpack->index[hpack->rds_headers++] = n;
 	return 0;
 }
 
-ngx_str_t* ngx_http2_hpack_index_name(ngx_http2_hpack_t* hpack,uint32_t idx){
-	ngx_str_t  ret;
-	uint32_t *len;
-	u_char* data;
-
+int32_t ngx_http2_hpack_index_name(ngx_http2_connection_t* h2c,uint32_t idx){
+	uint32_t len;
+	u_char* data,*p;
+	ngx_http2_hpack_t* hpack = &h2c->recv.hpack;
 	if(idx>=hpack->rds_headers){
-		return NULL;
+		return -1;
 	}
 
-	len = (uint32_t*)hpack->index[idx];
+	p =hpack->index[idx];
 
-	ret.len = *len;
-	ret.data = ((u_char*)len)+sizeof(uint32_t);
-	return &ret;
+	len = *((uint32_t*)p);
+
+	h2c->recv.c_header->name.len = len;
+	data = ngx_pcalloc(h2c->recv.pool,len);
+	if(data){
+		ngx_memcpy(data,p+sizeof(uint32_t),len);
+		h2c->recv.c_header->name.data=data;
+		return 0;
+	}else{
+		return -1;
+	}
 }
-ngx_str_t* ngx_http2_hpack_index_header(ngx_http2_hpack_t* hpack,uint32_t idx){
-	ngx_str_t  ret[2];
-	uint32_t *len;
-	u_char* data;
-
+int32_t ngx_http2_hpack_index_header(ngx_http2_connection_t* h2c,uint32_t idx){
+	uint32_t len;
+	u_char* data,*p;
+	ngx_http2_hpack_t* hpack = &h2c->recv.hpack;
 	if(idx>=hpack->rds_headers){
-		return NULL;
+		return -1;
 	}
+	p =hpack->index[idx];
 
-	len = (uint32_t*)hpack->index[idx];
-	ret[0].len = *len;
-	ret[0].data = ((u_char*)len)+sizeof(uint32_t);
-	len =(uint32_t*)(ret[0].data + ret[0].len);
-	ret[1].len = *len;
-	ret[1].data = ((u_char*)len)+sizeof(uint32_t);
-	return ret;
+	len = *((uint32_t*)p);
+
+	h2c->recv.c_header->name.len = len;
+	data = ngx_pcalloc(h2c->recv.pool,len);
+	if(data){
+		ngx_memcpy(data,p+sizeof(uint32_t),len);
+		h2c->recv.c_header->name.data=data;
+	}else{
+		return -1;
+	}
+	p+=(sizeof(uint32_t)+len);
+	len = *((uint32_t*)p);
+
+	h2c->recv.c_header->value.len = len;
+	data = ngx_pcalloc(h2c->recv.pool,len);
+	if(data){
+		ngx_memcpy(data,p+sizeof(uint32_t),len);
+		h2c->recv.c_header->value.data=data;
+		return 0;
+	}else{
+		return -1;
+	}
 }
 
 int32_t ngx_http2_hpack_resize(ngx_http2_hpack_t* hpack,uint32_t new_size){
@@ -204,7 +328,35 @@ int32_t ngx_http2_hpack_resize(ngx_http2_hpack_t* hpack,uint32_t new_size){
 
 }
 
+int32_t ngx_http2_hpack_get_index_header(ngx_http2_connection_t* h2c,int32_t idx,int32_t nameonly){
+	ngx_http2_static_headers_item* sheader;
+	ngx_str_t* value;
 
+	ngx_http2_header_t* header;
+
+	header = ngx_pcalloc(h2c->recv.pool,sizeof(ngx_http2_header_t));
+	if(header){
+		ngx_queue_insert_tail(&h2c->recv.headers_queue,&header->queue);
+		h2c->recv.c_header = header;
+		if(idx){
+			--idx;
+			if(idx< 61){
+				sheader = &ngx_http2_headers_static[idx];
+				header->name.len = sheader->name.len;
+				header->name.data = sheader->name.data;
+				if(!nameonly){
+					header->value.len = sheader->value.len;
+					header->value.data = sheader->value.data;
+				}
+				return NGX_OK;
+			}else{
+				idx-=61;
+				return nameonly?ngx_http2_hpack_index_name(h2c,idx):ngx_http2_hpack_index_header(h2c,idx);
+			}
+		}
+	}
+	return NGX_ERROR;
+}
 
 
 

@@ -18,6 +18,7 @@ static int ngx_http_upstream_http2_read_rest_stream_frame(ngx_http2_connection_t
 static int ngx_http_upstream_http2_read_push_promise_frame(ngx_http2_connection_t* h2c);
 static int ngx_http_upstream_http2_read_goaway_frame(ngx_http2_connection_t* h2c);
 static int ngx_http_upstream_http2_read_continuation_frame(ngx_http2_connection_t* h2c);
+static int ngx_http_upstream_http2_read_field_len(ngx_http2_connection_t* h2c);
 
 //static int ngx_http_upstream_http2_read_setting_frame(ngx_http2_connection_t* h2c);
 #define NGX_HTTP2_DATA_FRAME           0x0
@@ -36,8 +37,10 @@ typedef struct {
 	ngx_http2_handler_pt handler;
 } ngx_http2_frame_read_handler_config;
 
-static ngx_http2_frame_read_handler_config ngx_http2_frame_read_handler_configs[] = { { 0, ngx_http_upstream_http2_read_data_frame }, { 1,
-        ngx_http_upstream_http2_read_headers_frame }, { NGX_HTTP2_PRIORITY_SIZE, ngx_http_upstream_http2_read_priority_frame }, { NGX_HTTP2_RST_STREAM_SIZE,
+static ngx_http2_frame_read_handler_config ngx_http2_frame_read_handler_configs[] = {
+		{ 0, ngx_http_upstream_http2_read_data_frame },
+		{ 1, ngx_http_upstream_http2_read_headers_frame },
+		{ NGX_HTTP2_PRIORITY_SIZE, ngx_http_upstream_http2_read_priority_frame }, { NGX_HTTP2_RST_STREAM_SIZE,
         ngx_http_upstream_http2_read_rest_stream_frame }, { 0, ngx_http_upstream_http2_read_setting_frame }, { 0,
         ngx_http_upstream_http2_read_push_promise_frame }, { NGX_HTTP2_PING_SIZE, ngx_http_upstream_http2_read_ping_frame }, { NGX_HTTP2_GOAWAY_SIZE,
         ngx_http_upstream_http2_read_goaway_frame }, { NGX_HTTP2_WINDOW_UPDATE_SIZE, ngx_http_upstream_http2_read_window_update_frame }, { 0,
@@ -474,7 +477,6 @@ static int ngx_http_upstream_http2_read_setting_params(ngx_http2_connection_t* h
 
 	frame = ngx_http2_get_frame(h2c->server->conf);
 	if (frame) {
-
 		h2c->recv.len-=h2c->recv.payload_len;
 		for (i = 0; i < h2c->recv.payload_len; i += 6, h2c->recv.pos += 6) {
 			p = h2c->recv.pos;
@@ -490,12 +492,10 @@ static int ngx_http_upstream_http2_read_setting_params(ngx_http2_connection_t* h
 							}
 						}else{
 							if(ngx_http2_hpack_init(&h2c->recv.hpack,pv)){
-															ngx_http2_free_frame(h2c->server->conf,frame);
-															return NGX_ERROR;
+								ngx_http2_free_frame(h2c->server->conf,frame);
+								return NGX_ERROR;
 							}
 						}
-
-
 					}else{
 						if(h2c->recv.hpack.data){
 							ngx_free(h2c->recv.hpack.data);
@@ -629,7 +629,324 @@ static int ngx_http_upstream_http2_read_ping_frame(ngx_http2_connection_t* h2c) 
 }
 static int ngx_http_upstream_http2_read_data_frame(ngx_http2_connection_t* h2c) {
 }
+
+
+static int ngx_http_upstream_http2_read_continuation_head(ngx_http2_connection_t* h2c){
+	u_char* p;
+	uint32_t cid;
+	uint32_t old_len;
+	old_len = h2c->recv.payload_len;
+	if(h2c->recv.padding){
+		h2c->recv.len-=h2c->recv.padding;
+		h2c->recv.pos+=h2c->recv.padding;
+		h2c->recv.padding = 0;
+	}
+	p = h2c->recv.pos+old_len;
+	if(p[3]!=NGX_HTTP2_CONTINUATION_FRAME){
+		ngx_destroy_pool(h2c->recv.pool);
+		h2c->recv.pool = NULL;
+		return NGX_ERROR;
+	}
+	h2c->recv.payload_len = (p[0]<<16)|(p[1]<<8)|p[2];
+	cid =  (p[5]<<24)|(p[6]<<16)|(p[7]<<8)|p[8];
+	if(cid!=h2c->recv.sid){
+		ngx_destroy_pool(h2c->recv.pool);
+		h2c->recv.pool = NULL;
+		return NGX_ERROR;
+	}
+	h2c->recv.flag |=p[4];
+	h2c->recv.len-=9;
+	h2c->recv.pos+=9;
+	if(old_len){
+		p -= old_len;
+		ngx_memcpy(h2c->recv.pos,p,old_len);
+	}
+	h2c->recv.min_len = 0;
+	h2c->recv.handler = ngx_http_upstream_http2_read_headers_item;
+	return NGX_OK;
+
+
+}
+static int ngx_http_upstream_http2_read_continuation_head_with_field_len(ngx_http2_connection_t* h2c){
+	u_char* p;
+	uint32_t cid;
+	uint32_t old_len;
+	old_len = h2c->recv.payload_len;
+	if(h2c->recv.padding){
+		h2c->recv.len-=h2c->recv.padding;
+		h2c->recv.pos+=h2c->recv.padding;
+		h2c->recv.padding = 0;
+	}
+	p = h2c->recv.pos+old_len;
+	if(p[3]!=NGX_HTTP2_CONTINUATION_FRAME){
+		ngx_destroy_pool(h2c->recv.pool);
+		h2c->recv.pool = NULL;
+		return NGX_ERROR;
+	}
+	h2c->recv.payload_len = (p[0]<<16)|(p[1]<<8)|p[2];
+	cid =  (p[5]<<24)|(p[6]<<16)|(p[7]<<8)|p[8];
+	if(cid!=h2c->recv.sid){
+		ngx_destroy_pool(h2c->recv.pool);
+		h2c->recv.pool = NULL;
+		return NGX_ERROR;
+	}
+	h2c->recv.flag |=p[4];
+	h2c->recv.len-=9;
+	h2c->recv.pos+=9;
+	if(old_len){
+		p -= old_len;
+		ngx_memcpy(h2c->recv.pos,p,old_len);
+	}
+	h2c->recv.min_len = 0;
+	h2c->recv.handler = ngx_http_upstream_http2_read_field_len;
+	return NGX_OK;
+
+
+}
+
+static int ngx_http_upstream_http2_read_field_len(ngx_http2_connection_t* h2c){
+	 u_char      ch;
+	 u_char* p;
+	 ngx_int_t   value;
+	 ngx_uint_t  huff,shift,octet,len;
+	 if(h2c->recv.payload_len){
+			if((h2c->recv.payload_len< 4) && (!(h2c->recv.flag & NGX_HTTP2_END_HEADERS_FLAG))){
+				h2c->recv.min_len = 9 + h2c->recv.padding + h2c->recv.payload_len;
+				h2c->recv.handler = ngx_http_upstream_http2_read_continuation_head_with_field_len;
+			}else{
+				if(h2c->recv.len<4){
+					if(h2c->recv.payload_len>=4){
+						h2c->recv.min_len = 4;
+						return NGX_OK;
+					}else if(h2c->recv.len<h2c->recv.payload_len){
+						h2c->recv.min_len = h2c->recv.payload_len;
+						return NGX_OK;
+					}
+				}
+                p=h2c->recv.pos;
+                huff = *p >> 7;
+                value = *p & 0x7F;
+                ++p;
+                len =1;
+                if (value == 0x7F) {
+                	shift = 0;
+					for(;;){
+						++len;
+						octet = *p++;
+						value += (octet & 0x7f) << shift;
+						if(octet<128){
+							if(h2c->recv.payload_len<len){
+								goto failed;
+							}
+							break;
+						}
+						shift+=7;
+						if((h2c->recv.payload_len<=len)|| (len==4)){
+							goto failed;
+						}
+					}
+				}
+
+
+
+
+
+			}
+		}else if(h2c->recv.flag & NGX_HTTP2_END_HEADERS_FLAG) {
+			goto failed;
+		}else{
+			h2c->recv.min_len = 9 + h2c->recv.padding;
+			h2c->recv.handler = ngx_http_upstream_http2_read_continuation_head_with_field_len;
+		}
+		return NGX_OK;
+
+		failed:
+			ngx_destroy_pool(h2c->recv.pool);
+			h2c->recv.pool = NULL;
+			return NGX_ERROR;
+
+}
+
+static int ngx_http_upstream_http2_read_headers_item(ngx_http2_connection_t* h2c){
+    u_char      ch;
+    u_char* p;
+    ngx_int_t   value;
+    ngx_uint_t  indexed, size_update, prefix,shift,octet,len;
+
+    ngx_http2_header_t * header;
+	if(h2c->recv.payload_len){
+		if((h2c->recv.payload_len<4) && (!(h2c->recv.flag & NGX_HTTP2_END_HEADERS_FLAG))){
+			h2c->recv.min_len = 9 + h2c->recv.padding + h2c->recv.payload_len;
+			h2c->recv.handler = ngx_http_upstream_http2_read_continuation_head;
+		}else{
+			if(h2c->recv.len<4){
+				if(h2c->recv.payload_len>=4){
+					h2c->recv.min_len = 4;
+					return NGX_OK;
+				}else if(h2c->recv.len<h2c->recv.payload_len){
+					h2c->recv.min_len = h2c->recv.payload_len;
+					return NGX_OK;
+				}
+			}
+			size_update = 0;
+			indexed = 0;
+			p= h2c->recv.pos;
+			len = 1;
+			ch = *p++;
+
+			if (ch >= (1 << 7)) {
+				/* indexed header field */
+				indexed = 1;
+				prefix = (1<<7) -1;
+
+			} else if (ch >= (1 << 6)) {
+				/* literal header field with incremental indexing */
+				h2c->recv_index = 1;
+				prefix = (1<<6) -1;
+
+			} else if (ch >= (1 << 5)) {
+				/* dynamic table size update */
+				size_update = 1;
+				prefix = (1<<5) -1;
+
+			} else if (ch >= (1 << 4)) {
+				/* literal header field never indexed */
+				prefix = (1<<4) -1;
+
+			} else {
+				/* literal header field without indexing */
+				prefix = (1<<4) -1;
+			}
+			value = ch & prefix;
+			if (value == prefix) {
+				shift = 0;
+				for(;;){
+					++len;
+					octet = *p++;
+					value += (octet & 0x7f) << shift;
+					if(octet<128){
+						if(h2c->recv.payload_len<len){
+							goto failed;
+						}
+						break;
+					}
+					shift+=7;
+					if((h2c->recv.payload_len<=len)|| (len==4)){
+						goto failed;
+					}
+				}
+			}
+			h2c->recv.pos+=len;
+			h2c->recv.len-=len;
+			h2c->recv.payload_len-=len;
+
+			if(indexed){
+				if(ngx_http2_hpack_get_index_header(h2c,value,0)){
+					goto failed;
+				}
+			}else if(size_update){
+				if(value){
+					if(ngx_http2_hpack_resize(&h2c->recv.hpack,value)){
+						goto failed;
+					}
+				}else{
+					ngx_free(h2c->recv.hpack.data);
+					h2c->recv.hpack.data = NULL;
+					h2c->recv.hpack.rds_headers = 0;
+				}
+			}else{
+				h2c->recv_paser_value = 0;
+				if(value){
+					if(ngx_http2_hpack_get_index_header(h2c,value,1)){
+						goto failed;
+					}
+					h2c->recv_paser_value = 1;
+				}else{
+					header = ngx_pcalloc(h2c->recv.pool,sizeof(ngx_http2_header_t));
+					if(header){
+						h2c->recv.c_header = header;
+						ngx_queue_insert_tail(&h2c->recv.headers_queue,&header->queue);
+					}else{
+						goto failed;
+					}
+				}
+				h2c->recv.min_len = 0 ;
+				h2c->recv.handler = ngx_http_upstream_http2_read_field_len;
+			}
+		}
+	}else if(h2c->recv.flag & NGX_HTTP2_END_HEADERS_FLAG) {
+		// copy headers to stream;  NGX_HTTP2_END_STREAMS_FLAG
+		if(h2c->recv.padding){
+			h2c->recv.payload_len = h2c->recv.padding;
+			h2c->recv.padding = 0;
+			h2c->recv.min_len = 1;
+			h2c->recv.handler =ngx_http_upstream_http2_read_skip_data;
+		}else{
+			h2c->recv.min_len = 9;
+			h2c->recv.handler = ngx_http_upstream_http2_read_frame_head;
+		}
+	}else{
+		h2c->recv.min_len = 9 + h2c->recv.padding;
+		h2c->recv.handler = ngx_http_upstream_http2_read_continuation_head;
+	}
+	return NGX_OK;
+
+	failed:
+		ngx_destroy_pool(h2c->recv.pool);
+		h2c->recv.pool = NULL;
+		return NGX_ERROR;
+
+}
+static int ngx_http_upstream_http2_read_headers_priority(ngx_http2_connection_t* h2c){
+
+	//TODO: ignore priority
+	h2c->recv.len-=sizeof(uint32_t)+1;
+	h2c->recv.pos+=sizeof(uint32_t)+1;
+	h2c->recv.payload_len-=sizeof(uint32_t)+1;
+	h2c->recv.min_len = 0;
+	h2c->recv.handler = ngx_http_upstream_http2_read_headers_item;
+	h2c->recv.pool = ngx_create_pool(h2c->server->conf->http2_connection_pool_size,h2c->server->conf->log);
+	if(!h2c->recv.pool){
+		return NGX_ERROR;
+	}
+	return NGX_OK;
+}
 static int ngx_http_upstream_http2_read_headers_frame(ngx_http2_connection_t* h2c) {
+
+	if(h2c->max_streams){
+		h2c->recv_index = 0;
+		h2c->recv.padding = 0;
+		ngx_queue_init(&h2c->recv.headers_queue);
+		h2c->recv.res_status = 0;
+		if(h2c->recv.flag & NGX_HTTP2_PADDED_FLAG){
+			if(h2c->recv.payload_len<1){
+				return NGX_ERROR;
+			}
+			h2c->recv.padding = *((uint8_t*)h2c->recv.pos);
+			++h2c->recv.pos;
+			--h2c->recv.len;
+			h2c->recv.payload_len-=(1+h2c->recv.padding);
+		}
+		if(h2c->recv.flag& NGX_HTTP2_PRIORITY_FLAG){
+			if(h2c->recv.payload_len< (sizeof(uint32_t)+1)){
+				return NGX_ERROR;
+			}
+			h2c->recv.min_len = sizeof(uint32_t)+1;
+			h2c->recv.handler = ngx_http_upstream_http2_read_headers_priority;
+		}else{
+			h2c->recv.min_len = 0;
+			h2c->recv.handler = ngx_http_upstream_http2_read_headers_item;
+			h2c->recv.pool = ngx_create_pool(h2c->server->conf->http2_connection_pool_size,h2c->server->conf->log);
+			if(!h2c->recv.pool){
+				return NGX_ERROR;
+			}
+		}
+	}else{
+		h2c->recv.min_len = 1;
+		h2c->recv.handler =ngx_http_upstream_http2_read_skip_data;
+	}
+	return NGX_OK;
+}
 
 
 
@@ -871,6 +1188,13 @@ static int ngx_http_upstream_http2_read_window_update_frame(ngx_http2_connection
 
 }
 static int ngx_http_upstream_http2_read_continuation_frame(ngx_http2_connection_t* h2c) {
+	if(h2c->max_streams){
+		return NGX_ERROR;
+	}else{
+		h2c->recv.min_len = 1;
+		h2c->recv.handler = ngx_http_upstream_http2_read_skip_data;
+		return NGX_OK;
+	}
 }
 static int ngx_http_upstream_http2_read_skip_data(ngx_http2_connection_t* h2c) {
 	if(h2c->recv.payload_len <= h2c->recv.len){
@@ -880,7 +1204,8 @@ static int ngx_http_upstream_http2_read_skip_data(ngx_http2_connection_t* h2c) {
 		h2c->recv.handler = ngx_http_upstream_http2_read_frame_head;
 	}else{
 		h2c->recv.payload_len -=h2c->recv.len;
-		h2c->recv.pos += h2c->recv.len;
+		h2c->recv.pos = h2c->recv.buffer;
+		h2c->recv.readable_size = h2c->server->conf->buffer_size;
 		h2c->recv.len=0;
 	}
 	return NGX_OK;

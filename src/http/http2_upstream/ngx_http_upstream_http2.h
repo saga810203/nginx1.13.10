@@ -75,6 +75,7 @@ typedef void (*ngx_http2_send_header)(ngx_http2_connection_t* h2c, ngx_http2_fra
 
 
 typedef struct {
+	ngx_queue_t queue;
     ngx_str_t                        name;
     ngx_str_t                        value;
 } ngx_http2_header_t;
@@ -162,6 +163,8 @@ struct ngx_http2_connection_recv_part_s {
 		u_char type;
 		u_char flag;
 
+		uint8_t padding;
+
 		ngx_uint_t  min_len;
 		ngx_http2_handler_pt handler;
 
@@ -172,7 +175,10 @@ struct ngx_http2_connection_recv_part_s {
 		ngx_uint_t readable_size;
 
 		ngx_http2_hpack_t hpack;
-
+		ngx_queue_t headers_queue;
+		ngx_http2_header_t* c_header;
+		uint32_t res_status;
+		ngx_pool_t* pool;
 };
 struct ngx_http2_connection_send_part_s {
 	size_t send_window;
@@ -213,6 +219,8 @@ struct ngx_http2_connection_s {
 	unsigned recv_goaway :1;
 	unsigned send_error :1;
 	unsigned send_goaway :1;
+	unsigned recv_index:1;
+	unsigned recv_paser_value:1;
 
 
 
@@ -302,10 +310,10 @@ ssize_t ngx_http2_stream_send(ngx_connection_t* c, u_char* buf, size_t size);
 int32_t ngx_http2_hpack_init(ngx_http2_hpack_t* hpack,uint32_t size);
 int32_t ngx_http2_hpack_add(ngx_http2_hpack_t* hpack,ngx_str_t* name,ngx_str_t* value);
 
-ngx_str_t* ngx_http2_hpack_index_name(ngx_http2_hpack_t* hpack,uint32_t idx);
-ngx_str_t* ngx_http2_hpack_index_header(ngx_http2_hpack_t* hpack,uint32_t idx);
+
 
 int32_t ngx_http2_hpack_resize(ngx_http2_hpack_t* hpack,uint32_t new_size);
+int32_t ngx_http2_hpack_get_index_header(ngx_http2_connection_t* h2c,int32_t idx,int32_t nameonly);
 
 
 static ngx_inline ngx_http2_frame_t* ngx_http2_get_frame(ngx_http_upstream_http2_srv_conf_t* scf) {
