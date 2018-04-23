@@ -344,9 +344,11 @@ int32_t ngx_http2_hpack_get_index_header(ngx_http2_connection_t* h2c,int32_t idx
 				sheader = &ngx_http2_headers_static[idx];
 				header->name.len = sheader->name.len;
 				header->name.data = sheader->name.data;
+				header->cache = 'N';
 				if(!nameonly){
 					header->value.len = sheader->value.len;
 					header->value.data = sheader->value.data;
+					header->cache ='V';
 				}
 				return NGX_OK;
 			}else{

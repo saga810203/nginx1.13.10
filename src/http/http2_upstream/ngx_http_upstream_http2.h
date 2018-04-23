@@ -78,6 +78,7 @@ typedef struct {
 	ngx_queue_t queue;
     ngx_str_t                        name;
     ngx_str_t                        value;
+    u_char                           cache;
 } ngx_http2_header_t;
 
 struct ngx_http_upstream_http2_srv_conf_s {
@@ -167,6 +168,8 @@ struct ngx_http2_connection_recv_part_s {
 
 		ngx_uint_t  min_len;
 		ngx_http2_handler_pt handler;
+		ngx_http2_handler_pt next_handler;
+
 
 		size_t recv_window;
 		u_char* buffer;
@@ -177,7 +180,10 @@ struct ngx_http2_connection_recv_part_s {
 		ngx_http2_hpack_t hpack;
 		ngx_queue_t headers_queue;
 		ngx_http2_header_t* c_header;
-		uint32_t res_status;
+
+		int32_t  field_len;
+
+
 		ngx_pool_t* pool;
 };
 struct ngx_http2_connection_send_part_s {
@@ -221,6 +227,7 @@ struct ngx_http2_connection_s {
 	unsigned send_goaway :1;
 	unsigned recv_index:1;
 	unsigned recv_paser_value:1;
+	unsigned recv_huff:1;
 
 
 
@@ -253,9 +260,7 @@ struct ngx_http2_stream_s {
 
 	ngx_buf_t *preread;
 
-	ngx_http_v2_out_frame_t *free_frames;
-	ngx_chain_t *free_frame_headers;
-	ngx_chain_t *free_bufs;
+
 
 	ngx_queue_t queue;
 	/*
@@ -263,6 +268,9 @@ struct ngx_http2_stream_s {
 	 *
 	 * */
 	unsigned char state;    //0: waiting in server    1: waiting in connection  2:open  3  local close    4 close
+
+
+	ngx_queue_t res_header_queue;
 
 	u_char* recv_buffer;
 	u_char* recv_pos;
