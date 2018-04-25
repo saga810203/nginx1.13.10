@@ -2,6 +2,43 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+
+#define NGX_HTTP2_MAX_FLOW_CONTROL_SIZE  2147483647U
+#define NGX_HTTP2_HALF_FLOW_CONTROL_SIZE 1073741673U
+
+
+#define NGX_HTTP2_SETTINGS_ACK_SIZE            0
+#define NGX_HTTP2_RST_STREAM_SIZE              4
+#define NGX_HTTP2_PRIORITY_SIZE                5
+#define NGX_HTTP2_PING_SIZE                    8
+#define NGX_HTTP2_GOAWAY_SIZE                  8
+#define NGX_HTTP2_WINDOW_UPDATE_SIZE           4
+
+#define NGX_HTTP2_NO_FLAG              0x00
+#define NGX_HTTP2_ACK_FLAG             0x01
+#define NGX_HTTP2_END_STREAM_FLAG      0x01
+#define NGX_HTTP2_END_HEADERS_FLAG     0x04
+#define NGX_HTTP2_PADDED_FLAG          0x08
+#define NGX_HTTP2_PRIORITY_FLAG        0x20
+
+#define NGX_HTTP2_DATA_FRAME           0x0
+#define NGX_HTTP2_HEADERS_FRAME        0x1
+#define NGX_HTTP2_PRIORITY_FRAME       0x2
+#define NGX_HTTP2_RST_STREAM_FRAME     0x3
+#define NGX_HTTP2_SETTINGS_FRAME       0x4
+#define NGX_HTTP2_PUSH_PROMISE_FRAME   0x5
+#define NGX_HTTP2_PING_FRAME           0x6
+#define NGX_HTTP2_GOAWAY_FRAME         0x7
+#define NGX_HTTP2_WINDOW_UPDATE_FRAME  0x8
+#define NGX_HTTP2_CONTINUATION_FRAME   0x9
+
+
+#define NGX_HTTP2_STREAM_STATE_WATTING_IN_SERVER   0x00
+#define NGX_HTTP2_STREAM_STATE_WATTING_IN_CONNECTION   0x01
+#define NGX_HTTP2_STREAM_STATE_OPENED   0x02
+#define NGX_HTTP2_STREAM_STATE_LOCAL_CLOSED   0x03
+#define NGX_HTTP2_STREAM_STATE__CLOSED   0x04
+
 typedef struct ngx_http2_upstream_s ngx_http2_stream_t;
 typedef struct ngx_http2_upstream_main_conf_s ngx_http2_upstream_main_conf_t;
 typedef struct ngx_http2_upstream_srv_conf_s ngx_http2_upstream_srv_conf_t;
@@ -77,9 +114,6 @@ struct ngx_http2_upstream_s {
     ngx_http_upstream_handler_pt     read_event_handler;
     ngx_http_upstream_handler_pt     write_event_handler;
 
-    ngx_peer_connection_t            peer;
-
-    ngx_event_pipe_t                *pipe;
 
     ngx_chain_t                     *request_bufs;
 
@@ -121,7 +155,6 @@ struct ngx_http2_upstream_s {
 
     ngx_msec_t                       timeout;
 
-    ngx_http_upstream_state_t       *state;
 
     ngx_str_t                        method;
     ngx_str_t                        schema;
@@ -131,7 +164,6 @@ struct ngx_http2_upstream_s {
     ngx_str_t                        ssl_name;
 #endif
 
-    ngx_http_cleanup_pt             *cleanup;
 
     unsigned                         store:1;
     unsigned                         cacheable:1;
@@ -175,26 +207,6 @@ struct ngx_http2_upstream_s {
 		unsigned char state;    //0: waiting in server    1: waiting in connection  2:open  3  local close    4 close
 
 		unsigned waiting :1;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 };
 
@@ -322,8 +334,7 @@ static void ngx_http2_upstream_rd_check_broken_connection(ngx_http_request_t *r)
 static void ngx_http2_upstream_wr_check_broken_connection(ngx_http_request_t *r);
 static void ngx_http2_upstream_check_broken_connection(ngx_http_request_t *r,
 		ngx_event_t *ev);
-static void ngx_http2_upstream_connect(ngx_http_request_t *r,
-		ngx_http2_stream_t *u);
+static void ngx_http2_upstream_connect(ngx_http_request_t *r);
 static ngx_int_t ngx_http2_upstream_reinit(ngx_http_request_t *r,
 		ngx_http2_stream_t *u);
 static void ngx_http2_upstream_send_request(ngx_http_request_t *r,
@@ -613,7 +624,7 @@ NULL },
 },
 {
 		ngx_string("http2_header_pool_size"),
-		NGX_HTTP_UPS_CONF | NGX_CONF_TAKE1, ngx_http2_upstream_header_pool_size,
+		NGX_HTTP_UPS_CONF | NGX_CONF_TAKE1, ngx_http2_upstream_headerif()_pool_size,
 		NGX_HTTP_SRV_CONF_OFFSET, 0,NULL
 },
 {
@@ -827,97 +838,17 @@ static void ngx_http2_upstream_init_request(ngx_http_request_t *r) {
 	u->ssl_name = uscf->host;
 #endif
 
-	if (uscf->peer.init(r, uscf) != NGX_OK) {
-		ngx_http2_upstream_finalize_request(r, u,
-		NGX_HTTP_INTERNAL_SERVER_ERROR);
+	uscf->choose_server(r,uscf);
+	if(u->server){
+		ngx_http2_upstream_connect(r);
+	}else{
+		ngx_http2_upstream_finalize_request(r, u,NGX_HTTP_INTERNAL_SERVER_ERROR);
 		return;
 	}
 
-	u->peer.start_time = ngx_current_msec;
-
-	if (u->conf->next_upstream_tries
-			&& u->peer.tries > u->conf->next_upstream_tries) {
-		u->peer.tries = u->conf->next_upstream_tries;
-	}
-
-	ngx_http2_upstream_connect(r, u);
 }
 
 
-static void ngx_http2_upstream_resolve_handler(ngx_resolver_ctx_t *ctx) {
-	ngx_uint_t run_posted;
-	ngx_connection_t *c;
-	ngx_http_request_t *r;
-	ngx_http2_stream_t *u;
-	ngx_http2_upstream_resolved_t *ur;
-
-	run_posted = ctx->async;
-
-	r = ctx->data;
-	c = r->connection;
-
-	u = r->upstream;
-	ur = u->resolved;
-
-	ngx_http_set_log_request(c->log, r);
-
-	ngx_log_debug2(NGX_LOG_DEBUG_HTTP, c->log, 0,
-			"http upstream resolve: \"%V?%V\"", &r->uri, &r->args);
-
-	if (ctx->state) {
-		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-				"%V could not be resolved (%i: %s)", &ctx->name, ctx->state,
-				ngx_resolver_strerror(ctx->state));
-
-		ngx_http2_upstream_finalize_request(r, u, NGX_HTTP_BAD_GATEWAY);
-		goto failed;
-	}
-
-	ur->naddrs = ctx->naddrs;
-	ur->addrs = ctx->addrs;
-
-#if (NGX_DEBUG)
-	{
-		u_char text[NGX_SOCKADDR_STRLEN];
-		ngx_str_t addr;
-		ngx_uint_t i;
-
-		addr.data = text;
-
-		for (i = 0; i < ctx->naddrs; i++) {
-			addr.len = ngx_sock_ntop(ur->addrs[i].sockaddr, ur->addrs[i].socklen,
-					text, NGX_SOCKADDR_STRLEN, 0);
-
-			ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-					"name was resolved to %V", &addr);
-		}
-	}
-#endif
-
-	if (ngx_http2_upstream_create_round_robin_peer(r, ur) != NGX_OK) {
-		ngx_http2_upstream_finalize_request(r, u,
-		NGX_HTTP_INTERNAL_SERVER_ERROR);
-		goto failed;
-	}
-
-	ngx_resolve_name_done(ctx);
-	ur->ctx = NULL;
-
-	u->peer.start_time = ngx_current_msec;
-
-	if (u->conf->next_upstream_tries
-			&& u->peer.tries > u->conf->next_upstream_tries) {
-		u->peer.tries = u->conf->next_upstream_tries;
-	}
-
-	ngx_http2_upstream_connect(r, u);
-
-	failed:
-
-	if (run_posted) {
-		ngx_http_run_posted_requests(c);
-	}
-}
 
 static void ngx_http2_upstream_handler(ngx_event_t *ev) {
 	ngx_connection_t *c;
@@ -950,24 +881,46 @@ static void ngx_http2_upstream_handler(ngx_event_t *ev) {
 	ngx_http_run_posted_requests(c);
 }
 
-
-static void ngx_http2_upstream_connect(ngx_http_request_t *r,
-		ngx_http2_stream_t *u) {
+static void ngx_http2_upstream_connect(ngx_http_request_t *r) {
 	ngx_int_t rc;
 	ngx_connection_t *c;
+	ngx_http2_stream_t* stream;
+	ngx_http2_connection_t *h2c;
+	ngx_http2_server_t *server;
+	ngx_queue_t *queue;
+
 
 	r->connection->log->action = "connecting to upstream";
+	stream->state = 0x00;
+	server = stream->server;
 
-	if (u->state && u->state->response_time) {
-		u->state->response_time = ngx_current_msec - u->state->response_time;
+	queue = &server->connection_queue;
+	if(ngx_queue_empty(queue)){
+		stream->state =NGX_HTTP2_STREAM_STATE_WATTING_IN_CONNECTION;
+		h2c = ngx_queue_data(ngx_queue_head(queue),ngx_http2_connection_t,queue);
+		++h2c->processing;
+		if(h2c->processing >= h2c->max_streams){
+			ngx_queue_remove(&h2c->queue);
+		}
+		ngx_queue_insert_tail(&h2c->idle_streams,&stream->queue);
+		//TODO  send to server;
+
+	}else{
+		stream->state =NGX_HTTP2_STREAM_STATE_WATTING_IN_SERVER;
+		ngx_queue_insert_tail(&server->stream_queue,&stream->queue);
+		if(!server->connection){
+			server->connection = ngx_pcalloc(server->scf->pool,(sizeof(ngx_http2_connection_t)+ (sizeof(ngx_queue_t)* server->scf->sid_mask)));
+			if(server->connection){
+				++server->use_conns;
+				//TODO CONNECT
+			}else{
+				ngx_http2_upstream_finalize_request(r,)
+			}
+		}
 	}
 
-	u->state = ngx_array_push(r->upstream_states);
-	if (u->state == NULL) {
-		ngx_http2_upstream_finalize_request(r, u,
-		NGX_HTTP_INTERNAL_SERVER_ERROR);
-		return;
-	}
+
+
 
 	ngx_memzero(u->state, sizeof(ngx_http2_upstream_state_t));
 
@@ -3105,24 +3058,15 @@ static void ngx_http2_upstream_next(ngx_http_request_t *r,
 		u->peer.connection = NULL;
 	}
 
-	ngx_http2_upstream_connect(r, u);
+	ngx_http2_upstream_connect(r);
 }
 
-static void ngx_http2_upstream_cleanup(void *data) {
-	ngx_http_request_t *r = data;
-
-	ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			"cleanup http upstream request: \"%V\"", &r->uri);
-
-	ngx_http2_upstream_finalize_request(r, r->upstream, NGX_DONE);
-}
 
 static void ngx_http2_upstream_finalize_request(ngx_http_request_t *r,
-		ngx_http2_stream_t *u, ngx_int_t rc) {
+		 ngx_int_t rc) {
 	ngx_uint_t flush;
-
-	ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			"finalize http upstream request: %i", rc);
+	ngx_http2_stream_t *u = (ngx_http2_stream_t *)r->upstream;
+	ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"finalize http2 upstream request: %i", rc);
 
 	if (u->cleanup == NULL) {
 		/* the request was already finalized */
@@ -3130,8 +3074,7 @@ static void ngx_http2_upstream_finalize_request(ngx_http_request_t *r,
 		return;
 	}
 
-	*u->cleanup = NULL;
-	u->cleanup = NULL;
+
 
 	if (u->resolved && u->resolved->ctx) {
 		ngx_resolve_name_done(u->resolved->ctx);
@@ -4120,6 +4063,7 @@ ngx_http2_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy) {
 	if (uscf == NULL) {
 		return NGX_CONF_ERROR ;
 	}
+	uscf->choose_server = ngx_http2_upstream_default_choose_server;
 
 	ctx = ngx_pcalloc(cf->pool, sizeof(ngx_http_conf_ctx_t));
 	if (ctx == NULL) {
