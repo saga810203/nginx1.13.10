@@ -2339,6 +2339,7 @@ static void ngx_http_updateam_Http2_read_error(ngx_http2_connection_t* h2c) {
 			ngx_free(h2c->recv.hpack.data);
 			h2c->recv.hpack.data = NULL;
 		}
+		ngx_post_event(c->write,&ngx_posted_events);
 	} else {
 		if(h2c->recv.hpack.data){
 			ngx_free(h2c->recv.hpack.data);
@@ -2429,6 +2430,7 @@ static void ngx_http_updateam_Http2_write_error(ngx_http2_connection_t* h2c) {
 		h2c->data = scf->free_connections;
 		scf->free_connections = h2c;
 		--server->use_conns;
+		return;
 	} else {
 		queue = &h2c->idle_streams;
 		while(!(ngx_queue_empty(queue))){
@@ -2475,7 +2477,7 @@ static void ngx_http2_upstream_frame_read_handler(ngx_event_t* rev) {
 	ngx_connection_t* c = rev->data;
 	ngx_http2_connection_t* h2c = c->data;
 	ngx_http2_server_t *server = h2c->server;
-	ngx_http2_upstream_srv_conf_t* scf = server->conf;
+	ngx_http2_upstream_srv_conf_t* scf = server->scf;
 	u_char* p, *end;
 	ngx_uint_t mlen, len;
 	ngx_http2_handler_pt handler;
@@ -2501,7 +2503,7 @@ static void ngx_http2_upstream_frame_read_handler(ngx_event_t* rev) {
 			handler = h2c->recv.handler;
 		} else {
 			if (h2c->recv.readable_size < mlen) {
-				ngx_memcpy(h2c->recv.buffer, h2c->recv.pos, len);
+				ngx_memmove(h2c->recv.buffer, h2c->recv.pos, len);
 				h2c->recv.readable_size += (h2c->recv.pos - h2c->recv.buffer);
 				h2c->recv.pos = h2c->recv.buffer;
 			}
@@ -2529,7 +2531,7 @@ static void ngx_http2_upstream_gracefuly_close(ngx_event_t* wev) {
 	ngx_connection_t* c = wev->data;
 	ngx_http2_connection_t* h2c = c->data;
 	ngx_http2_server_t *server = h2c->server;
-	ngx_http2_upstream_srv_conf_t* scf = server->conf;
+	ngx_http2_upstream_srv_conf_t* scf = server->scf;
 	ssize_t rc;
 
 	wev->handler = ngx_http2_upstream_gracefuly_close;
@@ -2555,8 +2557,8 @@ static void ngx_http2_upstream_gracefuly_close(ngx_event_t* wev) {
 
 	h2c_free:
 
-	c->write->handler = ngx_http2_upstream_block_io;
-	c->read->handler = ngx_http2_upstream_block_io;
+	c->write->handler = ngx_http2_upstream_block_event;
+	c->read->handler = ngx_http2_upstream_block_event;
 
 	if (h2c->recv.buffer) {
 		ngx_http2_free_frame(h2c->recv.buffer);
@@ -2564,19 +2566,19 @@ static void ngx_http2_upstream_gracefuly_close(ngx_event_t* wev) {
 	}
 	ngx_close_connection(c);
 	if(h2c->recv.hpack.data){
-			ngx_free(h2c->recv.hpack.data);
-			h2c->recv.hpack.data = NULL;
-		}
+		ngx_free(h2c->recv.hpack.data);
+		h2c->recv.hpack.data = NULL;
+	}
 	h2c->data = scf->free_connections;
 	scf->free_connections = h2c;
-
+	--h2c->server->use_conns;
 }
 
 static void ngx_http2_upstream_frame_write_handler(ngx_event_t* wev) {
 	ngx_connection_t* c = wev->data;
 	ngx_http2_connection_t* h2c = c->data;
 	ngx_http2_server_t *server = h2c->server;
-	ngx_http2_upstream_srv_conf_t* scf = server->conf;
+	ngx_http2_upstream_srv_conf_t* scf = server->scf;
 	u_char* p, *end;
 	ssize_t rc;
 	ngx_http2_stream_t* stream;
@@ -2601,8 +2603,9 @@ static void ngx_http2_upstream_frame_write_handler(ngx_event_t* wev) {
 						}
 					} else if (p[3] == NGX_HTTP2_DATA_FRAME && (!(p[4] & NGX_HTTP2_END_STREAM_FLAG))) {
 						stream = ngx_http2_upstream_find_stream(h2c, (p[5] << 24) | (p[5] << 16) | (p[5] << 8) | p[5]);
+						//TODO:  buffering handler
 						if (stream && (stream->send_window > 0) && (!stream->waiting)) {
-							ngx_post_event(&stream->connection.write, &ngx_posted_events);
+							ngx_post_event(&stream->event, &ngx_posted_events);
 						}
 					}
 
@@ -2626,20 +2629,15 @@ static void ngx_http2_upstream_frame_write_handler(ngx_event_t* wev) {
 		h2c->send.first_frame = h2c->send.last_frame = NULL;
 	}
 	if (h2c->send_goaway) {
-		c->write->handler = ngx_http2_upstream_block_io;
+		c->write->handler = ngx_http2_upstream_block_event;
 		ngx_close_connection(c);
-		if(h2c->recv.hpack.data){
-				ngx_free(h2c->recv.hpack.data);
-				h2c->recv.hpack.data = NULL;
-			}
 		h2c->data = scf->free_connections;
 		scf->free_connections = h2c;
+		--h2c->server->use_conns;
 		return;
-	}
-	if (h2c->processing) {
+	}else if (h2c->processing) {
 		return;
-	}
-	if (h2c->max_streams == 0) {
+	}else if (h2c->max_streams == 0) {
 		h2c->send_frame = ngx_http2_upstream_send_queue_frame_ignore;
 		h2c->send_ping = ngx_http2_upstream_send_ping_frame_ignore;
 		h2c->send_headers = ngx_http2_upstream_send_header_frame_ignore;
@@ -2818,30 +2816,30 @@ static void ngx_http2_upstream_first_write_handler(ngx_event_t* wev) {
 	}
 }
 
-void ngx_http2_upstream_connection_init(ngx_http2_connection_t* h2c) {
-	ngx_int_t i;
-	ngx_connection_t* c = h2c->data;
-	ngx_queue_t* queue = &h2c->streams;
-	h2c->processing = 0;
-	h2c->max_streams = h2c->server->conf->max_streams;
-	h2c->headers_table_size = 4096;
-	c->read->handler = ngx_http2_upstream_block_io;
-	c->write->handler = ngx_http2_upstream_first_write_handler;
-	ngx_queue_init(&h2c->queue);
-	ngx_memzero(&h2c->send, sizeof(ngx_http2_connection_send_part_t));
-	ngx_memzero(&h2c->recv, sizeof(ngx_http2_connection_recv_part_t));
-	h2c->recv_error = 0;
-	h2c->recv_goaway = 0;
-	h2c->send_error = 0;
-	h2c->send_goaway = 0;
-	h2c-> recv_index=0;
-	h2c->recv_paser_value=0;
-	queue = &h2c->streams;
-	for (i = 0; i <= h2c->server->conf->sid_mask; ++i) {
-		ngx_queue_init(queue);
-		++queue;
-	}
-
+//void ngx_http2_upstream_connection_init(ngx_http2_connection_t* h2c) {
+//	ngx_int_t i;
+//	ngx_connection_t* c = h2c->data;
+//	ngx_queue_t* queue = &h2c->streams;
+//	h2c->processing = 0;
+//	h2c->max_streams = h2c->server->conf->max_streams;
+//	h2c->headers_table_size = 4096;
+//	c->read->handler = ngx_http2_upstream_block_io;
+//	c->write->handler = ngx_http2_upstream_first_write_handler;
+//	ngx_queue_init(&h2c->queue);
+//	ngx_memzero(&h2c->send, sizeof(ngx_http2_connection_send_part_t));
+//	ngx_memzero(&h2c->recv, sizeof(ngx_http2_connection_recv_part_t));
+//	h2c->recv_error = 0;
+//	h2c->recv_goaway = 0;
+//	h2c->send_error = 0;
+//	h2c->send_goaway = 0;
+//	h2c-> recv_index=0;
+//	h2c->recv_paser_value=0;
+//	queue = &h2c->streams;
+//	for (i = 0; i <= h2c->server->conf->sid_mask; ++i) {
+//		ngx_queue_init(queue);
+//		++queue;
+//	}
+//
 
 
 
@@ -3381,7 +3379,7 @@ static void ngx_http2_upstream_first_write_handler(ngx_event_t* wev) {
 		h2c->send.len -= rc;
 	}
 }
-void ngx_http2_upstream_http2_connection_init(ngx_http2_connection_t* h2c) {
+void ngx_http2_upstream_connection_init(ngx_http2_connection_t* h2c) {
 	ngx_int_t i;
 	ngx_connection_t* c = h2c->data;
 	ngx_queue_t* queue = &h2c->streams;
