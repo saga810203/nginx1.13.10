@@ -458,6 +458,7 @@ static void ngx_http_upstream_http2_send_header_frame_ignore(ngx_http2_connectio
 
 	}
 }
+
 static int ngx_http_upstream_http2_read_setting_params(ngx_http2_connection_t* h2c) {
 	int i, j;
 	ngx_uint_t pn, pv;
